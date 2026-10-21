@@ -1,0 +1,6 @@
+{
+  "name": "LabShift Personal",
+  "description": "Aplikasi penjadwalan shift dan manajemen tugas pribadi untuk ATLM Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

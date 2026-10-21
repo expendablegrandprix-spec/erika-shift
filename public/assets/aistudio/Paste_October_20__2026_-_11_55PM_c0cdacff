@@ -1,0 +1,1006 @@
+# MASTER PROMPT — LABSHIFT PERSONAL
+
+## 1. ROLE AND OBJECTIVE
+
+Act as a senior full-stack software engineer, UI/UX designer, database architect, and QA engineer.
+
+Build a complete, functional, mobile-first personal shift scheduling web application called **LabShift Personal**.
+
+This application is for one primary user: an Ahli Teknologi Laboratorium Medik (ATLM) working in the Instalasi Laboratorium Patologi Klinik at RSUD Sultan Syarif Mohamad Alkadrie, Pontianak, Indonesia.
+
+The app is a private personal productivity tool. It is NOT an official hospital scheduling system, and it must not claim to synchronize with the hospital's official systems.
+
+The user's main problems:
+1. Work shifts frequently conflict.
+2. Shift schedules change through WhatsApp or other chat messages.
+3. It is difficult to remember today's assigned laboratory section.
+4. It is difficult to remember who is working the same shift.
+5. Schedule changes are easily missed.
+6. There is no convenient history of original and revised schedules.
+
+The primary objective is to answer these questions immediately:
+- What is my active shift today?
+- What color is my shift?
+- Which laboratory section am I assigned to?
+- What are my tasks?
+- Who are my coworkers on the same shift?
+- Has my schedule changed?
+- Do I have any scheduling conflicts?
+- What is my next shift?
+
+Build the actual working application, not merely a static mockup or a design concept.
+
+## 2. REQUIRED TECHNOLOGY STACK
+
+Use the following technology stack:
+
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- Lucide React icons
+- Supabase PostgreSQL database
+- Supabase Auth
+- Supabase Row Level Security (RLS)
+- Supabase JavaScript client
+- Zod for validation where appropriate
+- React Router if multiple routes are needed
+
+Use stable, compatible package versions.
+
+Supabase must be the central persistent database. Do not use localStorage as the primary database.
+
+Use localStorage only for harmless UI preferences or temporary draft recovery if necessary. All permanent schedule data must be stored in Supabase.
+
+The application must have a real data layer with CRUD operations. Do not use hardcoded sample arrays as the production data source.
+
+Use environment variables:
+- VITE_SUPABASE_URL
+- VITE_SUPABASE_ANON_KEY
+
+Create a .env.example file containing placeholder values.
+
+Never expose a Supabase service_role key or any secret API key in frontend code.
+
+If Gemini AI is integrated, call it through a secure server-side function or backend endpoint. Never expose a private Gemini API key in the browser.
+
+## 3. LANGUAGE AND LOCALE
+
+All user-facing UI must be in Bahasa Indonesia.
+
+Use:
+- Locale: id-ID
+- Timezone: Asia/Pontianak
+- Date format: DD MMMM YYYY
+- Time format: 24-hour
+- Week starts on Monday
+- Currency formatting is not required
+
+Display Indonesian dates correctly.
+
+Store actual dates in PostgreSQL DATE columns and timestamps as TIMESTAMPTZ.
+
+Handle timezone conversion consistently to prevent dates shifting unexpectedly.
+
+## 4. VISUAL DESIGN
+
+Create a modern, polished, professional healthcare productivity application.
+
+Design direction:
+- Clean clinical dashboard
+- White or light neutral background
+- Dark navy text
+- Soft gray surfaces
+- Subtle borders and shadows
+- Rounded cards
+- Clear typography
+- Large, readable shift indicators
+- Accessible contrast
+- Minimal visual clutter
+- Mobile-first responsive design
+
+The app should feel like a modern productivity application rather than a hospital enterprise administration panel.
+
+Desktop:
+- Sidebar navigation
+- Main dashboard content
+- Optional contextual panel
+
+Mobile:
+- Compact header
+- Main content with cards
+- Bottom navigation
+- Large touch targets
+- Floating or prominent Add Shift button
+
+Create the following navigation:
+1. Hari Ini
+2. Kalender
+3. Tambah Shift
+4. Rekan
+5. Lainnya
+
+Under Lainnya:
+- Riwayat Perubahan
+- Catatan
+- Statistik
+- Pengaturan
+
+Use Lucide React icons consistently.
+
+Do not use emoji as the only means of identifying a shift. Show both a colored indicator and a readable shift name.
+
+## 5. SIX OFFICIAL SHIFT COLORS
+
+There are exactly SIX shift colors. Do not add a seventh shift or a custom shift category.
+
+Create these six predefined shift profiles.
+
+### A. KUNING
+
+Suggested UI color: #FACC15
+Text color: dark navy or black.
+
+Laboratory areas and tasks:
+- Urine
+- Feses
+- Sekret
+- Mikroskopik
+- Malaria
+- Diff
+- BTA
+
+### B. BIRU
+
+Suggested UI color: #3B82F6
+Text color: white where contrast is sufficient.
+
+Laboratory areas and tasks:
+- Kimia Klinik
+- Serologi
+- Kromatografi
+- Elektrolit
+- AGD
+- HbA1c
+- Imuno Serologi
+- Hormon
+
+### C. UNGU
+
+Suggested UI color: #8B5CF6
+Text color: white.
+
+Laboratory areas and tasks:
+- PH
+- Widal
+- Goldar
+- Tubex
+- Pembuatan sediaan darah
+- Pengecatan sediaan darah
+
+### D. ABU-ABU
+
+Suggested UI color: #9CA3AF
+Text color: dark navy or black.
+
+Tasks:
+- Operator LIS
+- Terima telepon
+- Validasi hasil
+- Lapor nilai kritis
+- Catat nilai kritis
+
+### E. HIJAU
+
+Suggested UI color: #22C55E
+Text color: dark navy or black when needed for contrast.
+
+Tasks:
+- TCM
+- Pembuatan BTA
+- Pengecatan BTA
+- SARS-CoV-2 Antigen
+- PCR
+
+### F. PINK
+
+Suggested UI color: #EC4899
+Text color: white where contrast is sufficient.
+
+Description:
+- Merangkap petugas BDRS
+
+Allow the user to edit descriptive task labels if appropriate, but preserve the six predefined shift identities and colors by default.
+
+Important:
+A task may appear in more than one shift profile, such as BTA. Do not treat overlapping task names as a scheduling conflict by themselves.
+
+Do not invent laboratory assignments or clinical procedures beyond the supplied task list.
+
+## 6. AUTHENTICATION AND PERSONAL PRIVACY
+
+Implement Supabase Auth.
+
+Provide:
+- Login
+- Logout
+- Session persistence
+- Protected application routes
+- User profile
+- Loading states
+- Authentication error messages
+
+The app is intended for one primary personal user, but the schema may support coworkers as simple contact records.
+
+Coworkers are NOT required to have accounts.
+
+Do not expose the user's private schedule to other authenticated users.
+
+Use Supabase RLS policies on all user-owned tables.
+
+Every personal record must be associated with auth.uid() through a user_id field or an equivalent ownership relationship.
+
+Users must only read and modify their own schedules, notes, contacts, shift history, and personal settings.
+
+Shift profile seed data may be shared application reference data, but any personal edits or preferences must be scoped to the authenticated user where appropriate.
+
+Do not implement public registration if it is not necessary. Document how to create the initial user through Supabase Auth.
+
+## 7. SUPABASE DATABASE SCHEMA
+
+Create SQL migration files in a supabase/migrations directory.
+
+The application must provide a documented, repeatable database setup process.
+
+Create the following tables or an equivalent normalized schema.
+
+### A. profiles
+
+Fields:
+- id UUID PRIMARY KEY REFERENCES auth.users(id)
+- display_name TEXT
+- job_title TEXT
+- work_unit TEXT
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+Use the authenticated user's UUID as the profile ID.
+
+### B. shift_types
+
+Fields:
+- id UUID PRIMARY KEY
+- code TEXT UNIQUE NOT NULL
+- name TEXT NOT NULL
+- color_hex TEXT NOT NULL
+- description TEXT
+- sort_order INTEGER
+- is_active BOOLEAN DEFAULT TRUE
+- created_at TIMESTAMPTZ
+
+Seed exactly six records:
+KUNING, BIRU, UNGU, ABU_ABU, HIJAU, PINK.
+
+Seed the colors and descriptions defined in this prompt.
+
+Reference shift profiles must not be duplicated every time a user signs up.
+
+### C. shift_tasks
+
+Fields:
+- id UUID PRIMARY KEY
+- shift_type_id UUID REFERENCES shift_types(id)
+- task_name TEXT NOT NULL
+- sort_order INTEGER
+- created_at TIMESTAMPTZ
+
+Seed the supplied task lists for the six shift types.
+
+### D. coworkers
+
+Fields:
+- id UUID PRIMARY KEY
+- user_id UUID NOT NULL REFERENCES auth.users(id)
+- name TEXT NOT NULL
+- nickname TEXT
+- notes TEXT
+- is_active BOOLEAN DEFAULT TRUE
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+These are personal contact records, not hospital accounts.
+
+### E. shifts
+
+Fields:
+- id UUID PRIMARY KEY
+- user_id UUID NOT NULL REFERENCES auth.users(id)
+- shift_date DATE NOT NULL
+- shift_type_id UUID NOT NULL REFERENCES shift_types(id)
+- start_time TIME
+- end_time TIME
+- location TEXT
+- notes TEXT
+- status TEXT NOT NULL DEFAULT 'scheduled'
+- original_shift_type_id UUID REFERENCES shift_types(id)
+- is_confirmed BOOLEAN DEFAULT FALSE
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+Use valid status values such as:
+- scheduled
+- changed
+- cancelled
+
+Validate status values using a PostgreSQL CHECK constraint or enum.
+
+Do not assume that all shifts have the same hours.
+
+Allow shifts that cross midnight. Store the date as the shift start date and explicitly handle overnight shifts in the UI and conflict detection.
+
+The application must support multiple shifts on one date so the user can record and investigate possible conflicts.
+
+Do not add a UNIQUE constraint on user_id and shift_date because it would prevent the application from identifying duplicate or overlapping assignments.
+
+### F. shift_coworkers
+
+Fields:
+- id UUID PRIMARY KEY
+- shift_id UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE
+- coworker_id UUID NOT NULL REFERENCES coworkers(id) ON DELETE CASCADE
+- created_at TIMESTAMPTZ
+- UNIQUE (shift_id, coworker_id)
+
+This table connects coworkers to an individual shift.
+
+### G. shift_task_checks
+
+Fields:
+- id UUID PRIMARY KEY
+- user_id UUID NOT NULL REFERENCES auth.users(id)
+- shift_id UUID NOT NULL REFERENCES shifts(id) ON DELETE CASCADE
+- task_name TEXT NOT NULL
+- is_completed BOOLEAN DEFAULT FALSE
+- completed_at TIMESTAMPTZ
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+Each shift has its own checklist state.
+
+Do not automatically reset or overwrite historical task checklists when the next shift is created.
+
+### H. shift_change_logs
+
+Fields:
+- id UUID PRIMARY KEY
+- user_id UUID NOT NULL REFERENCES auth.users(id)
+- shift_id UUID REFERENCES shifts(id) ON DELETE SET NULL
+- change_type TEXT NOT NULL
+- old_shift_date DATE
+- new_shift_date DATE
+- old_shift_type_id UUID REFERENCES shift_types(id)
+- new_shift_type_id UUID REFERENCES shift_types(id)
+- old_start_time TIME
+- new_start_time TIME
+- old_end_time TIME
+- new_end_time TIME
+- reason TEXT
+- source TEXT
+- source_message TEXT
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+Possible sources:
+- manual
+- chat_text
+- screenshot
+- imported
+
+The change log is append-only for normal application users. Users must not silently overwrite historical change records.
+
+When a shift is edited or cancelled, save the original and new values in a change log.
+
+Do not write a change log for an edit that made no actual changes.
+
+### I. personal_notes
+
+Fields:
+- id UUID PRIMARY KEY
+- user_id UUID NOT NULL REFERENCES auth.users(id)
+- shift_id UUID REFERENCES shifts(id) ON DELETE SET NULL
+- note_date DATE
+- title TEXT NOT NULL
+- content TEXT
+- is_pinned BOOLEAN DEFAULT FALSE
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+### J. reminder_settings
+
+Fields:
+- id UUID PRIMARY KEY
+- user_id UUID NOT NULL REFERENCES auth.users(id)
+- enabled BOOLEAN DEFAULT TRUE
+- day_before_enabled BOOLEAN DEFAULT TRUE
+- day_before_time TIME DEFAULT '20:00'
+- minutes_before_shift INTEGER DEFAULT 60
+- browser_notifications_enabled BOOLEAN DEFAULT FALSE
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+Add any additional table or index required for correctness, but avoid unnecessary complexity.
+
+Create indexes for common lookups:
+- shifts(user_id, shift_date)
+- coworkers(user_id, name)
+- shift_change_logs(user_id, created_at DESC)
+- personal_notes(user_id, note_date)
+
+## 8. ROW LEVEL SECURITY
+
+Enable RLS on all user-owned tables.
+
+Create secure policies that ensure:
+- profiles.id = auth.uid()
+- coworkers.user_id = auth.uid()
+- shifts.user_id = auth.uid()
+- personal_notes.user_id = auth.uid()
+- shift_change_logs.user_id = auth.uid()
+- reminder_settings.user_id = auth.uid()
+- shift_task_checks.user_id = auth.uid()
+
+For shift_coworkers, validate ownership through the parent shift and the coworker.
+
+Do not rely only on frontend filters for security.
+
+Prevent users from attaching another user's coworker record to their shift.
+
+Protect shared shift_types and shift_tasks reference data from arbitrary modification by ordinary authenticated users. Seed these records through SQL migrations.
+
+For shift logs, implement append-only behavior as far as practical, using restrictive RLS and/or database triggers.
+
+Use appropriate foreign keys, constraints, and indexes.
+
+Document the policies in the SQL migrations.
+
+## 9. DASHBOARD — HARI INI
+
+This is the most important page.
+
+Display:
+- Current Indonesian date
+- Today's active shift
+- Shift color and name
+- Start and end time
+- Assigned laboratory section
+- Task list
+- Coworkers assigned to this shift
+- Number of coworkers
+- Schedule confirmation status
+- Change alert
+- Next upcoming shift
+- Any detected scheduling conflicts
+
+If there is no shift for today, show:
+"Belum ada jadwal shift untuk hari ini."
+
+If multiple shifts exist today, show a prominent conflict warning and list all relevant shifts.
+
+Do not arbitrarily select one conflicting shift and pretend it is the only assignment.
+
+Provide clear actions:
+- Tambah Shift
+- Edit Jadwal
+- Lihat Kalender
+- Lihat Rekan
+- Catat Perubahan
+
+The dashboard must load real Supabase data.
+
+## 10. CALENDAR
+
+Implement:
+- Monthly calendar
+- Weekly agenda or list view
+- Previous and next month navigation
+- Today shortcut
+- Shift-colored date indicators
+- Filter by shift color
+- Date selection
+- Shift details on selection
+
+If several shifts occur on one day, display all shifts in the day detail.
+
+Show a clear legend for all six colors.
+
+Provide a button to add a shift to the selected date.
+
+When changing months, fetch only the required date range where practical.
+
+Display Indonesian weekday and month names.
+
+## 11. ADD, EDIT, AND CANCEL SHIFT
+
+Create a validated form with:
+- Shift date
+- Shift type
+- Start time
+- End time
+- Laboratory location or section
+- Coworkers
+- Notes
+- Confirmation status
+
+Use searchable coworker selection.
+
+Provide create, update, and cancel actions.
+
+Ask for confirmation before cancelling a shift.
+
+When editing an existing shift:
+1. Fetch the current database record.
+2. Compare the old and new values.
+3. Update the record.
+4. Insert a change log with the actual differences.
+5. Refresh the relevant UI.
+6. Display a success or error notification.
+
+Use database transactions or a secure RPC function when necessary to ensure that the shift update and change-log insertion stay consistent.
+
+Do not claim a change succeeded until Supabase confirms it.
+
+Do not automatically delete the original shift when the user is unsure whether a chat represents a replacement or an additional shift.
+
+## 12. SHIFT CONFLICT DETECTION
+
+Implement real conflict detection.
+
+At minimum detect:
+- Two shifts that overlap in time.
+- Two shifts on the same date when the times are missing and the assignments cannot be verified.
+- A duplicate schedule entry.
+- An unconfirmed schedule change that may need review.
+
+For shifts with known start and end times, compare actual time intervals, including shifts crossing midnight.
+
+Do not flag every pair of shifts on the same date as a confirmed time conflict if their known time intervals do not overlap.
+
+When times are missing, report:
+"Perlu verifikasi: terdapat lebih dari satu jadwal pada tanggal ini."
+
+Distinguish:
+- Konflik waktu terdeteksi
+- Jadwal ganda
+- Perlu verifikasi
+- Tidak ada konflik terdeteksi
+
+Provide conflict details and allow the user to:
+- Open each affected shift
+- Edit a shift
+- Mark the issue as reviewed
+- Keep multiple shifts if they are intentional
+
+Never silently delete or merge conflicting schedules.
+
+## 13. COWORKERS
+
+Create a coworker management page.
+
+Features:
+- Add coworker
+- Edit coworker
+- Search by name
+- Deactivate coworker
+- Assign coworkers to a shift
+- View upcoming shifts with a selected coworker
+
+Show the list of coworkers assigned to the selected shift.
+
+Clearly distinguish between:
+- Coworkers explicitly assigned to this shift
+- Coworkers not yet confirmed
+
+Do not invent coworker names or infer assignments from historical data.
+
+The initial application must allow the user to enter their own coworkers.
+
+## 14. SCHEDULE CHANGE MANAGEMENT
+
+Create a dedicated "Perubahan Jadwal" page.
+
+Show:
+- Original shift
+- Current shift
+- Date of change
+- Previous color
+- New color
+- Previous and new time
+- Reason
+- Source of change
+- Source message when available
+
+Use a chronological timeline.
+
+Clearly distinguish the original schedule from the currently active schedule.
+
+Provide a way to mark a schedule as confirmed after receiving a change from chat.
+
+All schedule changes must be visible in the change history.
+
+## 15. AI CHAT MESSAGE PARSER
+
+Implement an AI-assisted schedule-change import feature.
+
+Provide a text area titled:
+"Tempel Pesan Perubahan Jadwal"
+
+Example input:
+"Besok kamu tukar sama Budi. Kamu masuk Biru jam 07.00 sampai 14.00."
+
+The parser should return a structured proposal containing:
+- Mentioned date
+- Shift color
+- Start time
+- End time
+- Coworker name if present
+- Change type
+- Reason
+- Original shift if identifiable
+- Missing or ambiguous information
+- Confidence or review status
+
+Use Gemini through a secure server-side integration if available.
+
+The parser must not save changes directly.
+
+Required workflow:
+1. User pastes the message.
+2. AI parses the message.
+3. App displays the extracted information.
+4. User reviews and edits the proposal.
+5. User explicitly confirms the change.
+6. App saves the change to Supabase.
+7. App creates the corresponding change log.
+8. App checks for conflicts.
+9. App refreshes the dashboard and calendar.
+
+Relative dates such as "besok", "lusa", and "Jumat" must be interpreted using Asia/Pontianak and the actual message interpretation date.
+
+Ask the user to resolve ambiguous dates or shift assignments.
+
+Never assume that the word "besok" means the day after the currently displayed calendar date if the message is being interpreted at a different time.
+
+If Gemini is not configured, implement a manual fallback form. The rest of the application must still function.
+
+## 16. OPTIONAL SCREENSHOT IMPORT
+
+If image input and secure AI processing are supported, add an optional screenshot import feature.
+
+Allow the user to upload a screenshot of a shift-related chat.
+
+Extract only relevant scheduling information.
+
+Do not save any detected schedule automatically.
+
+Display a review screen with editable fields and a confirmation button.
+
+If the text is unclear, request manual correction.
+
+Protect the uploaded screenshot. Do not make it publicly accessible.
+
+Avoid storing screenshot images permanently unless the user explicitly chooses to retain them.
+
+If screenshot parsing cannot be completed reliably, leave the feature clearly marked as optional and provide a working text-entry alternative.
+
+## 17. REMINDERS
+
+Implement an honest reminder system.
+
+Support:
+- Day-before reminder
+- Reminder before shift starts
+- Browser notification permission
+- Reminder settings page
+
+Default day-before reminder time: 20:00 local time.
+
+Default pre-shift reminder: 60 minutes.
+
+IMPORTANT:
+Browser notifications and timers in an ordinary open web page are not guaranteed to run when the browser is closed or the device is offline.
+
+Do not claim that reminders are guaranteed when the app is closed.
+
+For reliable scheduled reminders, create an optional Supabase Edge Function and scheduled invocation, with a supported notification delivery provider if configured.
+
+If no push-notification provider is configured, clearly explain that reminders currently depend on browser permissions and application availability.
+
+Do not invent a working push-notification backend.
+
+Store reminder preferences in Supabase.
+
+When a shift changes, ensure upcoming reminder data reflects the active schedule.
+
+Avoid sending duplicate reminders for the same shift.
+
+## 18. TASK CHECKLIST
+
+For each shift, show its associated tasks.
+
+Allow the user to check off tasks as they are completed.
+
+Checklist state must be saved to Supabase.
+
+Keep the checklist attached to its individual shift record.
+
+Display progress such as:
+"3 dari 6 tugas selesai."
+
+Use the seeded task profiles as suggested checklist templates.
+
+Allow the user to decide which tasks apply to a specific shift, without changing historical checklist records.
+
+Do not represent checklist completion as proof of clinical quality or official procedure compliance.
+
+## 19. NOTES
+
+Create a personal notes page.
+
+Support:
+- Add note
+- Edit note
+- Delete note with confirmation
+- Pin note
+- Associate note with a date
+- Associate note with a shift
+- Search notes
+
+Example:
+"Ingat cek stok reagen sebelum shift besok."
+
+Do not store patient names, medical record numbers, laboratory results, or other patient-identifiable clinical information in notes.
+
+Display a brief privacy reminder in the notes interface.
+
+## 20. STATISTICS
+
+Create a personal statistics page showing:
+- Number of shifts per month
+- Distribution by the six shift colors
+- Upcoming shifts
+- Number of recorded schedule changes
+- Number of reviewed and unresolved conflicts
+
+Use real Supabase data.
+
+Do not count cancelled shifts as active shifts.
+
+Clearly distinguish recorded statistics from estimates.
+
+Do not fabricate missing historical data.
+
+## 21. SEARCH
+
+Implement global search across:
+- Shift dates
+- Shift color
+- Coworker names
+- Location
+- Personal notes
+- Schedule change reasons
+
+Examples:
+"Siapa rekan saya hari Jumat?"
+"Kapan shift Hijau berikutnya?"
+"Kapan saya terakhir shift Biru?"
+"Apa perubahan jadwal minggu ini?"
+
+If a Gemini assistant is implemented, it must query the authenticated user's real database records using secure, constrained server-side operations.
+
+Never let the AI invent schedule facts.
+
+If the data is unavailable, respond that no matching record was found.
+
+Do not expose database credentials to the model.
+
+## 22. BACKUP AND EXPORT
+
+Provide:
+- Export personal shifts to CSV
+- Export schedule changes to CSV
+- Export coworkers to CSV
+- Backup personal data to JSON
+- Restore from a validated JSON backup
+
+Before restoring data, show a preview and ask for confirmation.
+
+Validate all imported fields and foreign-key relationships.
+
+Never overwrite existing records silently.
+
+Protect private data and only export records belonging to the current user.
+
+## 23. ERROR HANDLING AND UX
+
+Every database operation must support:
+- Loading state
+- Empty state
+- Success feedback
+- Error feedback
+- Retry when appropriate
+
+Handle:
+- Network errors
+- Expired sessions
+- Missing environment variables
+- RLS permission errors
+- Invalid form fields
+- Duplicate assignments
+- Conflicting schedules
+- Empty coworker lists
+- Unconfigured Gemini API
+
+Use readable Indonesian error messages.
+
+Avoid silent failures.
+
+Do not fabricate database data if the request fails.
+
+Provide skeleton loading states and useful empty states.
+
+## 24. APPLICATION STRUCTURE
+
+Use a maintainable project structure similar to:
+
+src/
+  components/
+  pages/
+    DashboardPage.tsx
+    CalendarPage.tsx
+    ShiftFormPage.tsx
+    CoworkersPage.tsx
+    ChangeHistoryPage.tsx
+    NotesPage.tsx
+    StatisticsPage.tsx
+    SettingsPage.tsx
+    LoginPage.tsx
+  hooks/
+  lib/
+    supabase.ts
+    dateUtils.ts
+    conflictDetection.ts
+    validation.ts
+  services/
+    shiftsService.ts
+    coworkersService.ts
+    changesService.ts
+    remindersService.ts
+    aiParserService.ts
+  types/
+  App.tsx
+  main.tsx
+
+supabase/
+  migrations/
+  functions/
+
+Create reusable components for:
+- ShiftColorBadge
+- ShiftCard
+- ShiftCalendar
+- CoworkerSelector
+- ConflictAlert
+- ChangeTimeline
+- TaskChecklist
+- ConfirmationDialog
+- EmptyState
+- LoadingState
+- ErrorMessage
+
+Adapt the structure if a simpler architecture is more appropriate, but maintain separation between UI, database access, and business logic.
+
+## 25. SEED DATA AND FIRST-RUN EXPERIENCE
+
+Seed only the six standard shift types and their task templates.
+
+Do not seed fake personal shifts or fake coworkers into the production database.
+
+On first login, display an onboarding flow:
+1. Confirm the user's display name.
+2. Explain the six shift colors.
+3. Invite the user to add coworkers.
+4. Invite the user to enter their first shift.
+5. Explain that shift times must be entered according to the actual schedule.
+6. Explain reminder limitations.
+7. Explain how to record changes from chat.
+
+Make the app useful even if the user has not entered any schedules yet.
+
+## 26. IMPLEMENTATION ORDER
+
+Build the application in this order:
+
+Phase 1:
+- Project scaffolding
+- Supabase client
+- Authentication
+- Database migration
+- RLS policies
+- Six shift-type seed records
+- Profile setup
+
+Phase 2:
+- Dashboard
+- Calendar
+- Add/edit/cancel shift
+- Coworker management
+- Shift task checklist
+- Conflict detection
+
+Phase 3:
+- Change history
+- Chat message parser
+- Personal notes
+- Statistics
+- Search
+
+Phase 4:
+- Browser reminder integration
+- Optional scheduled notification infrastructure
+- CSV and JSON backup/export
+- Optional screenshot parsing
+
+Do not create nonfunctional buttons.
+
+Do not replace real database operations with mock functions.
+
+If an advanced feature cannot be implemented fully in the current environment, provide a clear, working fallback and document the missing configuration.
+
+## 27. TESTING AND ACCEPTANCE CRITERIA
+
+Verify the following before considering the application complete:
+
+1. The app can connect to Supabase using environment variables.
+2. A user can sign in and sign out.
+3. The six shift types appear with the correct colors.
+4. A user can create a shift and see it after refreshing the page.
+5. A user can edit a shift and see its change history.
+6. A user can cancel a shift and retain its historical record.
+7. A user can add coworkers and assign them to a shift.
+8. The dashboard displays the correct date for Asia/Pontianak.
+9. The calendar shows all recorded shifts.
+10. Overlapping shift times trigger a conflict warning.
+11. Missing times trigger an appropriate verification warning when needed.
+12. Non-overlapping shifts are not incorrectly reported as time conflicts.
+13. Shift changes from chat require explicit confirmation.
+14. The checklist persists after refresh.
+15. Notes persist after refresh.
+16. RLS prevents access to another user's private records.
+17. Failed database operations show understandable errors.
+18. No secret service_role key is present in frontend code.
+19. CSV export contains the correct authenticated user's records.
+20. Empty states work without fake data.
+
+Add automated tests for important date calculations and conflict detection where practical.
+
+Run the build and resolve TypeScript errors, missing imports, and runtime errors.
+
+## 28. FINAL DELIVERABLES
+
+Generate:
+- Complete runnable source code
+- package.json
+- .env.example
+- Supabase SQL migrations
+- RLS policies
+- Seed SQL for the six shift types
+- Setup instructions in Indonesian
+- Instructions for configuring Supabase
+- Instructions for configuring optional Gemini integration
+- Instructions for running the application locally
+- A checklist for verifying the app after deployment
+
+Start by implementing the working core application with Supabase persistence.
+
+Prioritize data correctness, security, and a smooth mobile user experience over unnecessary visual effects.
+
+Do not stop after generating the dashboard mockup. Continue until the core application is connected to Supabase and the principal workflows are implemented.
