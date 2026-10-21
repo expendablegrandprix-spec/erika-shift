@@ -498,27 +498,49 @@ export const SettingsPage: React.FC<Props> = ({
 
       {/* 4. DATABASE & SUPABASE INTEGRATION */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-2 text-slate-900 font-bold text-base">
             <Database className="w-4 h-4 text-slate-600" />
-            <span>Penyimpanan Data & Koneksi Supabase</span>
+            <span>Penyimpanan Data & Sinkronisasi Realtime</span>
           </div>
 
-          <span
-            className={`px-2.5 py-1 rounded-md text-xs font-bold border ${
-              isSupabaseConfigured
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}
-          >
-            {isSupabaseConfigured ? 'Supabase Terhubung' : 'Penyimpanan Offline Aktif'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-1 rounded-md text-xs font-bold border bg-emerald-50 text-emerald-800 border-emerald-200 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Realtime Live Sync Aktif</span>
+            </span>
+            <span
+              className={`px-2.5 py-1 rounded-md text-xs font-bold border ${
+                isSupabaseConfigured
+                  ? 'bg-blue-50 text-blue-800 border-blue-200'
+                  : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+            >
+              {isSupabaseConfigured ? 'Supabase Terhubung' : 'Penyimpanan Offline'}
+            </span>
+          </div>
         </div>
 
-        <div className="text-xs text-slate-600 space-y-2">
+        <div className="text-xs text-slate-600 space-y-3">
           <p>
-            Aplikasi LabShift Personal mendukung sinkronisasi ke <strong>Supabase PostgreSQL Cloud Database</strong>.
+            Aplikasi LabShift Personal terhubung dan tersinkronisasi secara <strong>Real-time</strong> ke database Supabase PostgreSQL. Setiap perubahan jadwal dinas, penambahan rekan, atau catatan akan langsung diperbarui secara instan.
           </p>
+
+          <div className="pt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Bersihkan semua sisa data dummy/demo dari perangkat Anda?')) {
+                  DataService.clearAllDummyData();
+                  onRefresh();
+                  alert('Seluruh data dummy berhasil dibersihkan.');
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 font-semibold text-xs transition-colors cursor-pointer"
+            >
+              🧹 Bersihkan Sisa Data Dummy
+            </button>
+          </div>
         </div>
       </div>
 

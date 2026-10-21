@@ -4,6 +4,7 @@
  */
 
 import { supabase, isSupabaseConfigured } from '../lib/supabase.ts';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   Shift,
   ShiftWithDetails,
@@ -46,13 +47,8 @@ const DEFAULT_PROFILE: UserProfile = {
   workUnit: 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
 };
 
-// Default initial sample coworkers for convenience (or empty)
-const DEFAULT_COWORKERS: Coworker[] = [
-  { id: 'coworker-1', userId: 'default', name: 'Budi Santoso, A.Md.AK', nickname: 'Budi', notes: 'Spesialis Kimia Darah', isActive: true },
-  { id: 'coworker-2', userId: 'default', name: 'Siti Rahmawati, S.Tr.Kes', nickname: 'Siti', notes: 'Petugas BDRS & Serologi', isActive: true },
-  { id: 'coworker-3', userId: 'default', name: 'Rina Kusuma, A.Md.Kes', nickname: 'Rina', notes: 'Mikrobiologi & TCM BTA', isActive: true },
-  { id: 'coworker-4', userId: 'default', name: 'Hendra Wijaya, A.Md.AK', nickname: 'Hendra', notes: 'Operator LIS & Urinalisis', isActive: true },
-];
+// Default initial coworkers (clean start, no dummy data)
+const DEFAULT_COWORKERS: Coworker[] = [];
 
 export class DataService {
   // -------------------------------------------------------------
@@ -140,6 +136,7 @@ export class DataService {
     }
 
     setLocalItem('profile', updated);
+    this.notifyDataChanged();
     return updated;
   }
 
@@ -210,6 +207,7 @@ export class DataService {
 
     const current = await this.getCoworkers();
     setLocalItem('coworkers', [newCoworker, ...current]);
+    this.notifyDataChanged();
     return newCoworker;
   }
 
@@ -234,6 +232,7 @@ export class DataService {
     const coworkers = await this.getCoworkers();
     const updatedList = coworkers.map((c) => (c.id === id ? { ...c, ...updates } : c));
     setLocalItem('coworkers', updatedList);
+    this.notifyDataChanged();
   }
 
   // -------------------------------------------------------------
@@ -294,11 +293,8 @@ export class DataService {
     }
 
     if (rawShifts.length === 0) {
-      rawShifts = getLocalItem<Shift[]>('shifts', this.getInitialSampleShifts());
-      shiftCoworkerPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', [
-        { shiftId: 'sample-shift-today', coworkerId: 'coworker-1' },
-        { shiftId: 'sample-shift-today', coworkerId: 'coworker-2' },
-      ]);
+      rawShifts = getLocalItem<Shift[]>('shifts', []);
+      shiftCoworkerPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
       allTaskChecks = getLocalItem<{ shiftId: string; taskName: string; isCompleted: boolean; id: string }[]>(
         'shift_task_checks',
         []
@@ -380,7 +376,7 @@ export class DataService {
     }
 
     // Save locally
-    const currentShifts = getLocalItem<Shift[]>('shifts', this.getInitialSampleShifts());
+    const currentShifts = getLocalItem<Shift[]>('shifts', []);
     setLocalItem('shifts', [...currentShifts, newShift]);
 
     if (coworkerIds.length > 0) {
@@ -400,6 +396,8 @@ export class DataService {
       reason: 'Penambahan jadwal shift baru',
       source: 'manual',
     });
+
+    this.notifyDataChanged();
 
     const all = await this.getShifts();
     return all.find((s) => s.id === newShift.id) || (newShift as ShiftWithDetails);
@@ -460,7 +458,7 @@ export class DataService {
     }
 
     // Local update
-    const rawShifts = getLocalItem<Shift[]>('shifts', this.getInitialSampleShifts());
+    const rawShifts = getLocalItem<Shift[]>('shifts', []);
     const updatedShifts = rawShifts.map((s) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s));
     setLocalItem('shifts', updatedShifts);
 
@@ -489,6 +487,8 @@ export class DataService {
         sourceMessage,
       });
     }
+
+    this.notifyDataChanged();
   }
 
   static async cancelShift(id: string, reason: string = 'Pembatalan shift'): Promise<void> {
@@ -505,10 +505,11 @@ export class DataService {
         console.warn('Supabase deleteShift failed:', e);
       }
     }
-    const rawShifts = getLocalItem<Shift[]>('shifts', this.getInitialSampleShifts());
+    const rawShifts = getLocalItem<Shift[]>('shifts', []);
     setLocalItem('shifts', rawShifts.filter((s) => s.id !== id));
     const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
     setLocalItem('shift_coworkers', currentPairs.filter((p) => p.shiftId !== id));
+    this.notifyDataChanged();
   }
 
   // -------------------------------------------------------------
@@ -550,6 +551,7 @@ export class DataService {
       });
     }
     setLocalItem('shift_task_checks', current);
+    this.notifyDataChanged();
   }
 
   // -------------------------------------------------------------
@@ -669,18 +671,7 @@ export class DataService {
         console.warn('Supabase getNotes failed:', e);
       }
     }
-    return getLocalItem<PersonalNote[]>('personal_notes', [
-      {
-        id: 'sample-note-1',
-        userId: 'local-user',
-        title: 'Cek Reagen Kimia & Kontrol Alat',
-        content: 'Periksa masa kedaluwarsa reagen glukosa dan kolesterol serta jalankan QC sebelum shift pagi dimulai.',
-        isPinned: true,
-        noteDate: getPontianakDateString(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ]);
+    return getLocalItem<PersonalNote[]>('personal_notes', []);
   }
 
   static async createNote(note: Omit<PersonalNote, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<PersonalNote> {
@@ -720,6 +711,7 @@ export class DataService {
 
     const current = await this.getNotes();
     setLocalItem('personal_notes', [newNote, ...current]);
+    this.notifyDataChanged();
     return newNote;
   }
 
@@ -734,6 +726,7 @@ export class DataService {
 
     const current = await this.getNotes();
     setLocalItem('personal_notes', current.filter((n) => n.id !== id));
+    this.notifyDataChanged();
   }
 
   // -------------------------------------------------------------
@@ -804,27 +797,10 @@ export class DataService {
   }
 
   // -------------------------------------------------------------
-  // INITIAL SAMPLE SHIFTS (Seeded for Pontianak today and tomorrow)
+  // INITIAL SAMPLE SHIFTS (Disabled - clean start)
   // -------------------------------------------------------------
   private static getInitialSampleShifts(): Shift[] {
-    const today = getPontianakDateString();
-    // Default today shift: BIRU
-    return [
-      {
-        id: 'sample-shift-today',
-        userId: 'local-user',
-        shiftDate: today,
-        shiftTypeId: '22222222-2222-2222-2222-222222222222', // BIRU
-        startTime: '07:00',
-        endTime: '14:00',
-        location: 'Lab Patologi Klinik - Ruang Kimia Darah',
-        notes: 'Shift Pagi Reguler Kimia Klinik & Elektrolit',
-        status: 'scheduled',
-        isConfirmed: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
+    return [];
   }
 
   // -------------------------------------------------------------
@@ -947,5 +923,100 @@ export class DataService {
       const msg = err instanceof Error ? err.message : 'Error parsing JSON';
       return { success: false, message: `Gagal memulihkan cadangan: ${msg}` };
     }
+  }
+
+  // -------------------------------------------------------------
+  // REAL-TIME SYNC & DUMMY CLEANER
+  // -------------------------------------------------------------
+  static notifyDataChanged(): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('labshift_data_changed'));
+    }
+  }
+
+  static clearAllDummyData(): void {
+    try {
+      const rawShifts = getLocalItem<Shift[]>('shifts', []);
+      setLocalItem(
+        'shifts',
+        rawShifts.filter((s) => !s.id.startsWith('sample-'))
+      );
+
+      const rawCoworkers = getLocalItem<Coworker[]>('coworkers', []);
+      setLocalItem(
+        'coworkers',
+        rawCoworkers.filter((c) => !c.id.startsWith('coworker-'))
+      );
+
+      const rawPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
+      setLocalItem(
+        'shift_coworkers',
+        rawPairs.filter((p) => !p.shiftId.startsWith('sample-') && !p.coworkerId.startsWith('coworker-'))
+      );
+
+      const rawNotes = getLocalItem<PersonalNote[]>('personal_notes', []);
+      setLocalItem(
+        'personal_notes',
+        rawNotes.filter((n) => !n.id.startsWith('sample-'))
+      );
+
+      this.notifyDataChanged();
+    } catch (e) {
+      console.warn('Error clearing dummy data:', e);
+    }
+  }
+
+  static subscribeRealtime(onUpdate: () => void): () => void {
+    const handleLocalChange = () => {
+      onUpdate();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('labshift_data_changed', handleLocalChange);
+      window.addEventListener('storage', handleLocalChange);
+    }
+
+    let supabaseChannel: RealtimeChannel | null = null;
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        supabaseChannel = supabase
+          .channel('labshift_live_realtime')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'shifts' }, () => {
+            onUpdate();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'coworkers' }, () => {
+            onUpdate();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'shift_coworkers' }, () => {
+            onUpdate();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'shift_task_checks' }, () => {
+            onUpdate();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'shift_change_logs' }, () => {
+            onUpdate();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'personal_notes' }, () => {
+            onUpdate();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+            onUpdate();
+          })
+          .subscribe();
+      } catch (err) {
+        console.warn('Supabase Realtime subscription error:', err);
+      }
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('labshift_data_changed', handleLocalChange);
+        window.removeEventListener('storage', handleLocalChange);
+      }
+      if (supabase && supabaseChannel) {
+        supabase.removeChannel(supabaseChannel);
+      }
+    };
   }
 }

@@ -100,9 +100,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Purge any lingering dummy/sample data from previous sessions
+    DataService.clearAllDummyData();
+  }, []);
+
+  useEffect(() => {
     if (isLoggedIn) {
       loadData();
       setIsLoginShiftAlertOpen(true);
+
+      // Subscribe to live real-time sync (Supabase and local cross-tab)
+      const unsubscribe = DataService.subscribeRealtime(() => {
+        loadData();
+      });
 
       // Check if first-run onboarding has been completed
       const hasSeenOnboarding = localStorage.getItem('labshift_onboarding_completed');
@@ -110,6 +120,10 @@ export default function App() {
         setIsOnboardingOpen(true);
         localStorage.setItem('labshift_onboarding_completed', 'true');
       }
+
+      return () => {
+        unsubscribe();
+      };
     }
   }, [isLoggedIn, loadData]);
 

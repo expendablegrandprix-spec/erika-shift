@@ -15,17 +15,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isForgotMode, setIsForgotMode] = useState(false);
 
-  // Form fields
+  // Form fields (clean initial states)
   const [loginIdentifier, setLoginIdentifier] = useState(() => {
-    return localStorage.getItem('labshift_user_name') || 'ATLM Patologi Klinik';
+    return localStorage.getItem('labshift_user_name') || '';
   });
   const [email, setEmail] = useState(() => {
-    return localStorage.getItem('labshift_user_email') || 'atlm@rsudssma.pontianak.go.id';
+    return localStorage.getItem('labshift_user_email') || '';
   });
-  const [password, setPassword] = useState(() => {
-    return localStorage.getItem('labshift_user_pass') || 'atlm123';
-  });
-  const [displayName, setDisplayName] = useState('ATLM Patologi Klinik');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
 
   // Forgot password states
@@ -132,12 +130,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     localStorage.setItem('labshift_user_pass', newPassword);
     setResetStep('success');
     setSuccessMsg('Kata sandi berhasil direset! Anda sekarang dapat masuk dengan kata sandi baru.');
-  };
-
-  const fillDemoCredentials = () => {
-    setLoginIdentifier('ATLM Patologi Klinik');
-    setPassword('atlm123');
-    setErrorMsg(null);
   };
 
   return (
@@ -447,18 +439,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <LogIn className="w-4 h-4" />
                 <span>Masuk ke LabShift</span>
               </button>
-
-              {/* Quick Demo Helper */}
-              <div className="pt-2 border-t border-slate-100 text-center">
-                <button
-                  type="button"
-                  onClick={fillDemoCredentials}
-                  className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Gunakan Akun Demo ATLM RSUD</span>
-                </button>
-              </div>
             </form>
           )}
         </div>
