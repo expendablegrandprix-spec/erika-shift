@@ -224,6 +224,7 @@ export default function App() {
                 initialSelectedDate={formDate}
                 onAddShift={handleOpenAddShift}
                 onEditShift={handleOpenEditShift}
+                onRefresh={loadData}
               />
             )}
 

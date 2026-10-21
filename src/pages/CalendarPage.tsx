@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Edit,
   Download,
+  Grid,
 } from 'lucide-react';
 import type { ShiftWithDetails, ShiftType, ConflictIssue } from '../types/index.ts';
 import { PREDEFINED_SHIFT_TYPES } from '../lib/constants.ts';
@@ -28,6 +29,7 @@ import {
 } from '../lib/dateUtils.ts';
 import { ShiftColorBadge } from '../components/ShiftColorBadge.tsx';
 import { generateIcsCalendar, downloadIcsFile } from '../lib/icsExport.ts';
+import { ShiftMatrixModal } from '../components/ShiftMatrixModal.tsx';
 
 interface Props {
   shifts: ShiftWithDetails[];
@@ -35,6 +37,7 @@ interface Props {
   initialSelectedDate?: string;
   onAddShift: (date: string) => void;
   onEditShift: (shiftId: string) => void;
+  onRefresh?: () => void;
 }
 
 const INDONESIAN_MONTH_NAMES = [
@@ -48,9 +51,11 @@ export const CalendarPage: React.FC<Props> = ({
   initialSelectedDate,
   onAddShift,
   onEditShift,
+  onRefresh,
 }) => {
   const todayStr = getPontianakDateString();
   const [selectedDate, setSelectedDate] = useState<string>(initialSelectedDate || todayStr);
+  const [isMatrixOpen, setIsMatrixOpen] = useState<boolean>(false);
 
   // Current view month & year
   const initialYear = parseInt(selectedDate.split('-')[0], 10);
@@ -195,6 +200,15 @@ export const CalendarPage: React.FC<Props> = ({
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
+          <button
+            type="button"
+            onClick={() => setIsMatrixOpen(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Buka input matriks shift sebulan penuh"
+          >
+            <Grid className="w-3.5 h-3.5" />
+            <span>Matriks Jadwal</span>
+          </button>
           <button
             type="button"
             onClick={() => onAddShift(selectedDate)}
@@ -471,6 +485,15 @@ export const CalendarPage: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      <ShiftMatrixModal
+        isOpen={isMatrixOpen}
+        onClose={() => setIsMatrixOpen(false)}
+        existingShifts={shifts}
+        onDataChanged={() => {
+          if (onRefresh) onRefresh();
+        }}
+      />
     </div>
   );
 };
