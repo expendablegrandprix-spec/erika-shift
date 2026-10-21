@@ -9,7 +9,6 @@ import {
   Shift,
   ShiftWithDetails,
   ShiftType,
-  ShiftTask,
   Coworker,
   ShiftChangeLog,
   PersonalNote,
@@ -17,9 +16,26 @@ import {
   UserProfile,
 } from '../types/index.ts';
 import { PREDEFINED_SHIFT_TYPES, PREDEFINED_TASKS_BY_CODE } from '../lib/constants.ts';
-import { getPontianakDateString } from '../lib/dateUtils.ts';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'labshift_personal_';
+
+// Deterministic fallback UUID for the primary user profile in single-user / team ATLM mode
+export const DEFAULT_USER_ID = '00000000-0000-4000-a000-000000000001';
+
+export function isValidUuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
+
+export function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 // Local storage fallback helpers
 function getLocalItem<T>(key: string, defaultValue: T): T {
@@ -41,7 +57,7 @@ function setLocalItem<T>(key: string, value: T): void {
 
 // Default initial ATLM profile
 const DEFAULT_PROFILE: UserProfile = {
-  id: 'atlm-user-rsud-ssma',
+  id: DEFAULT_USER_ID,
   displayName: 'ATLM Patologi Klinik',
   jobTitle: 'Ahli Teknologi Laboratorium Medik (ATLM)',
   workUnit: 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
@@ -51,6 +67,21 @@ const DEFAULT_PROFILE: UserProfile = {
 const DEFAULT_COWORKERS: Coworker[] = [];
 
 export class DataService {
+  // -------------------------------------------------------------
+  // USER IDENTIFIER
+  // -------------------------------------------------------------
+  static getCurrentUserId(): string {
+    try {
+      const stored = localStorage.getItem('labshift_user_id');
+      if (stored && isValidUuid(stored)) return stored;
+      const newId = generateUuid();
+      localStorage.setItem('labshift_user_id', newId);
+      return newId;
+    } catch {
+      return DEFAULT_USER_ID;
+    }
+  }
+
   // -------------------------------------------------------------
   // SHIFT TYPES & TASKS
   // -------------------------------------------------------------
@@ -84,54 +115,62 @@ export class DataService {
   }
 
   // -------------------------------------------------------------
-  // USER PROFILE
+  // USER PROFILE & PHOTO
   // -------------------------------------------------------------
   static async getProfile(): Promise<UserProfile> {
+    const userId = this.getCurrentUserId();
+
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
-          if (!error && data) {
-            return {
-              id: data.id,
-              displayName: data.display_name || user.email?.split('@')[0] || 'ATLM',
-              jobTitle: data.job_title || DEFAULT_PROFILE.jobTitle,
-              workUnit: data.work_unit || DEFAULT_PROFILE.workUnit,
-              photoUrl: data.photo_url || undefined,
-            };
-          }
+        // Query the most recently updated profile in Supabase to sync across browsers
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1);
+
+        if (!error && data && data.length > 0) {
+          const remote = data[0];
+          const fetchedProfile: UserProfile = {
+            id: remote.id && isValidUuid(remote.id) ? remote.id : userId,
+            displayName: remote.display_name || DEFAULT_PROFILE.displayName,
+            jobTitle: remote.job_title || DEFAULT_PROFILE.jobTitle,
+            workUnit: remote.work_unit || DEFAULT_PROFILE.workUnit,
+            photoUrl: remote.photo_url || undefined,
+          };
+          // Cache in local storage for instant offline loading
+          setLocalItem('profile', fetchedProfile);
+          return fetchedProfile;
         }
       } catch (e) {
-        console.warn('Supabase getProfile failed:', e);
+        console.warn('Supabase getProfile failed, using local cache:', e);
       }
     }
+
     return getLocalItem<UserProfile>('profile', DEFAULT_PROFILE);
   }
 
   static async updateProfile(profile: Partial<UserProfile>): Promise<UserProfile> {
     const current = await this.getProfile();
-    const updated = { ...current, ...profile };
+    const updated: UserProfile = { ...current, ...profile };
+    const targetId = updated.id && isValidUuid(updated.id) ? updated.id : this.getCurrentUserId();
+    updated.id = targetId;
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from('profiles').upsert({
-            id: user.id,
-            display_name: updated.displayName,
-            job_title: updated.jobTitle,
-            work_unit: updated.workUnit,
-            photo_url: updated.photoUrl,
-            updated_at: new Date().toISOString(),
-          });
+        const { error } = await supabase.from('profiles').upsert({
+          id: targetId,
+          display_name: updated.displayName,
+          job_title: updated.jobTitle,
+          work_unit: updated.workUnit,
+          photo_url: updated.photoUrl || null,
+          updated_at: new Date().toISOString(),
+        });
+        if (error) {
+          console.warn('Supabase updateProfile upsert error:', error.message);
         }
       } catch (e) {
-        console.warn('Supabase updateProfile failed:', e);
+        console.warn('Supabase updateProfile exception:', e);
       }
     }
 
@@ -152,15 +191,17 @@ export class DataService {
           .eq('is_active', true)
           .order('name');
         if (!error && data) {
-          return data.map((d) => ({
+          const list = data.map((d) => ({
             id: d.id,
-            userId: d.user_id,
+            userId: d.user_id || DEFAULT_USER_ID,
             name: d.name,
-            nickname: d.nickname,
-            notes: d.notes,
+            nickname: d.nickname || '',
+            notes: d.notes || '',
             isActive: d.is_active,
             createdAt: d.created_at,
           }));
+          setLocalItem('coworkers', list);
+          return list;
         }
       } catch (e) {
         console.warn('Supabase getCoworkers failed:', e);
@@ -170,9 +211,10 @@ export class DataService {
   }
 
   static async createCoworker(coworker: Omit<Coworker, 'id' | 'userId' | 'isActive'>): Promise<Coworker> {
+    const userId = this.getCurrentUserId();
     const newCoworker: Coworker = {
-      id: 'coworker-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      userId: 'local-user',
+      id: generateUuid(),
+      userId,
       name: coworker.name.trim(),
       nickname: coworker.nickname?.trim() || '',
       notes: coworker.notes?.trim() || '',
@@ -182,23 +224,22 @@ export class DataService {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data, error } = await supabase
-            .from('coworkers')
-            .insert({
-              user_id: user.id,
-              name: newCoworker.name,
-              nickname: newCoworker.nickname,
-              notes: newCoworker.notes,
-              is_active: true,
-            })
-            .select()
-            .single();
-          if (!error && data) {
-            newCoworker.id = data.id;
-            newCoworker.userId = data.user_id;
-          }
+        const { data, error } = await supabase
+          .from('coworkers')
+          .insert({
+            id: newCoworker.id,
+            user_id: userId,
+            name: newCoworker.name,
+            nickname: newCoworker.nickname,
+            notes: newCoworker.notes,
+            is_active: true,
+          })
+          .select()
+          .single();
+        if (!error && data) {
+          newCoworker.id = data.id;
+        } else if (error) {
+          console.warn('Supabase createCoworker error:', error.message);
         }
       } catch (e) {
         console.warn('Supabase createCoworker failed:', e);
@@ -212,7 +253,7 @@ export class DataService {
   }
 
   static async updateCoworker(id: string, updates: Partial<Coworker>): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
         await supabase
           .from('coworkers')
@@ -258,7 +299,7 @@ export class DataService {
         if (!sErr && shiftsData) {
           rawShifts = shiftsData.map((d) => ({
             id: d.id,
-            userId: d.user_id,
+            userId: d.user_id || DEFAULT_USER_ID,
             shiftDate: d.shift_date,
             shiftTypeId: d.shift_type_id,
             startTime: d.start_time,
@@ -286,9 +327,14 @@ export class DataService {
               isCompleted: tc.is_completed,
             }));
           }
+
+          // Cache locally
+          setLocalItem('shifts', rawShifts);
+          setLocalItem('shift_coworkers', shiftCoworkerPairs);
+          setLocalItem('shift_task_checks', allTaskChecks);
         }
       } catch (e) {
-        console.warn('Supabase getShifts failed, using local:', e);
+        console.warn('Supabase getShifts failed, using local cache:', e);
       }
     }
 
@@ -307,8 +353,6 @@ export class DataService {
       const originalShiftType = s.originalShiftTypeId ? shiftTypesMap.get(s.originalShiftTypeId) : undefined;
       const assignedCoworkerIds = shiftCoworkerPairs.filter((p) => p.shiftId === s.id).map((p) => p.coworkerId);
       const shiftCoworkers = assignedCoworkerIds.map((id) => coworkersMap.get(id)).filter(Boolean) as Coworker[];
-
-      // Filter tasks checked for this shift
       const taskChecks = allTaskChecks.filter((tc) => tc.shiftId === s.id);
 
       return {
@@ -325,50 +369,53 @@ export class DataService {
     shiftData: Omit<Shift, 'id' | 'userId' | 'createdAt' | 'updatedAt'>,
     coworkerIds: string[] = []
   ): Promise<ShiftWithDetails> {
-    const shiftId = 'shift-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    const userId = this.getCurrentUserId();
+    const shiftId = generateUuid();
     const newShift: Shift = {
       ...shiftData,
       id: shiftId,
-      userId: 'local-user',
+      userId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data, error } = await supabase
-            .from('shifts')
-            .insert({
-              user_id: user.id,
-              shift_date: newShift.shiftDate,
-              shift_type_id: newShift.shiftTypeId,
-              start_time: newShift.startTime || null,
-              end_time: newShift.endTime || null,
-              location: newShift.location || null,
-              notes: newShift.notes || null,
-              status: newShift.status,
-              original_shift_type_id: newShift.originalShiftTypeId || null,
-              is_confirmed: newShift.isConfirmed,
-            })
-            .select()
-            .single();
+        const { data, error } = await supabase
+          .from('shifts')
+          .insert({
+            id: newShift.id,
+            user_id: userId,
+            shift_date: newShift.shiftDate,
+            shift_type_id: newShift.shiftTypeId,
+            start_time: newShift.startTime || null,
+            end_time: newShift.endTime || null,
+            location: newShift.location || null,
+            notes: newShift.notes || null,
+            status: newShift.status,
+            original_shift_type_id: newShift.originalShiftTypeId || null,
+            is_confirmed: newShift.isConfirmed,
+          })
+          .select()
+          .single();
 
-          if (!error && data) {
-            newShift.id = data.id;
-            newShift.userId = data.user_id;
+        if (!error && data) {
+          newShift.id = data.id;
 
-            // Insert coworkers
-            if (coworkerIds.length > 0) {
+          // Insert coworkers
+          if (coworkerIds.length > 0) {
+            const validCoworkerIds = coworkerIds.filter((cid) => isValidUuid(cid));
+            if (validCoworkerIds.length > 0) {
               await supabase.from('shift_coworkers').insert(
-                coworkerIds.map((cid) => ({
+                validCoworkerIds.map((cid) => ({
                   shift_id: data.id,
                   coworker_id: cid,
                 }))
               );
             }
           }
+        } else if (error) {
+          console.warn('Supabase createShift error:', error.message);
         }
       } catch (e) {
         console.warn('Supabase createShift failed:', e);
@@ -415,15 +462,7 @@ export class DataService {
     const oldShift = all.find((s) => s.id === id);
     if (!oldShift) return;
 
-    // Check if there are actual changes
-    const hasChanges =
-      (updates.shiftDate && updates.shiftDate !== oldShift.shiftDate) ||
-      (updates.shiftTypeId && updates.shiftTypeId !== oldShift.shiftTypeId) ||
-      (updates.startTime && updates.startTime !== oldShift.startTime) ||
-      (updates.endTime && updates.endTime !== oldShift.endTime) ||
-      (updates.status && updates.status !== oldShift.status);
-
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
         await supabase
           .from('shifts')
@@ -443,9 +482,10 @@ export class DataService {
 
         if (coworkerIds !== undefined) {
           await supabase.from('shift_coworkers').delete().eq('shift_id', id);
-          if (coworkerIds.length > 0) {
+          const validCids = coworkerIds.filter((cid) => isValidUuid(cid));
+          if (validCids.length > 0) {
             await supabase.from('shift_coworkers').insert(
-              coworkerIds.map((cid) => ({
+              validCids.map((cid) => ({
                 shift_id: id,
                 coworker_id: cid,
               }))
@@ -457,46 +497,44 @@ export class DataService {
       }
     }
 
-    // Local update
-    const rawShifts = getLocalItem<Shift[]>('shifts', []);
-    const updatedShifts = rawShifts.map((s) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s));
+    // Update local state
+    const currentShifts = getLocalItem<Shift[]>('shifts', []);
+    const updatedShifts = currentShifts.map((s) => (s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s));
     setLocalItem('shifts', updatedShifts);
 
     if (coworkerIds !== undefined) {
       const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
-      const filtered = currentPairs.filter((p) => p.shiftId !== id);
+      const filteredPairs = currentPairs.filter((p) => p.shiftId !== id);
       const newPairs = coworkerIds.map((cid) => ({ shiftId: id, coworkerId: cid }));
-      setLocalItem('shift_coworkers', [...filtered, ...newPairs]);
+      setLocalItem('shift_coworkers', [...filteredPairs, ...newPairs]);
     }
 
-    // Write change log only if actual scheduling fields changed
-    if (hasChanges) {
-      await this.createChangeLog({
-        shiftId: id,
-        changeType: updates.status === 'cancelled' ? 'cancelled' : 'updated',
-        oldShiftDate: oldShift.shiftDate,
-        newShiftDate: updates.shiftDate || oldShift.shiftDate,
-        oldShiftTypeId: oldShift.shiftTypeId,
-        newShiftTypeId: updates.shiftTypeId || oldShift.shiftTypeId,
-        oldStartTime: oldShift.startTime,
-        newStartTime: updates.startTime || oldShift.startTime,
-        oldEndTime: oldShift.endTime,
-        newEndTime: updates.endTime || oldShift.endTime,
-        reason: changeReason || (updates.status === 'cancelled' ? 'Shift dibatalkan' : 'Pembaruan jadwal shift'),
-        source: changeSource,
-        sourceMessage,
-      });
-    }
+    // Log update
+    await this.createChangeLog({
+      shiftId: id,
+      changeType: 'updated',
+      oldShiftDate: oldShift.shiftDate,
+      newShiftDate: updates.shiftDate || oldShift.shiftDate,
+      oldShiftTypeId: oldShift.shiftTypeId,
+      newShiftTypeId: updates.shiftTypeId || oldShift.shiftTypeId,
+      oldStartTime: oldShift.startTime,
+      newStartTime: updates.startTime !== undefined ? updates.startTime : oldShift.startTime,
+      oldEndTime: oldShift.endTime,
+      newEndTime: updates.endTime !== undefined ? updates.endTime : oldShift.endTime,
+      reason: changeReason || 'Perubahan jadwal shift dinas',
+      source: changeSource,
+      sourceMessage,
+    });
 
     this.notifyDataChanged();
   }
 
-  static async cancelShift(id: string, reason: string = 'Pembatalan shift'): Promise<void> {
-    await this.updateShift(id, { status: 'cancelled' }, undefined, reason, 'manual');
+  static async cancelShift(id: string, reason = 'Shift dibatalkan / tukar jadwal'): Promise<void> {
+    await this.updateShift(id, { status: 'cancelled' }, undefined, reason);
   }
 
   static async deleteShift(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
         await supabase.from('shift_coworkers').delete().eq('shift_id', id);
         await supabase.from('shift_task_checks').delete().eq('shift_id', id);
@@ -516,19 +554,14 @@ export class DataService {
   // TASK CHECKLIST
   // -------------------------------------------------------------
   static async toggleTaskCheck(shiftId: string, taskName: string, isCompleted: boolean): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && isValidUuid(shiftId)) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from('shift_task_checks').upsert({
-            user_id: user.id,
-            shift_id: shiftId,
-            task_name: taskName,
-            is_completed: isCompleted,
-            completed_at: isCompleted ? new Date().toISOString() : null,
-            updated_at: new Date().toISOString(),
-          });
-        }
+        await supabase.from('shift_task_checks').upsert({
+          shift_id: shiftId,
+          task_name: taskName,
+          is_completed: isCompleted,
+          completed_at: isCompleted ? new Date().toISOString() : null,
+        });
       } catch (e) {
         console.warn('Supabase toggleTaskCheck failed:', e);
       }
@@ -544,7 +577,7 @@ export class DataService {
       current[existingIndex].isCompleted = isCompleted;
     } else {
       current.push({
-        id: 'tc-' + Date.now(),
+        id: generateUuid(),
         shiftId,
         taskName,
         isCompleted,
@@ -571,7 +604,7 @@ export class DataService {
         if (!error && data) {
           logs = data.map((d) => ({
             id: d.id,
-            userId: d.user_id,
+            userId: d.user_id || DEFAULT_USER_ID,
             shiftId: d.shift_id,
             changeType: d.change_type,
             oldShiftDate: d.old_shift_date,
@@ -587,6 +620,7 @@ export class DataService {
             sourceMessage: d.source_message,
             createdAt: d.created_at,
           }));
+          setLocalItem('shift_change_logs', logs);
         }
       } catch (e) {
         console.warn('Supabase getChangeLogs failed:', e);
@@ -597,7 +631,6 @@ export class DataService {
       logs = getLocalItem<ShiftChangeLog[]>('shift_change_logs', []);
     }
 
-    // Attach resolved shift type objects
     return logs.map((log) => ({
       ...log,
       oldShiftType: log.oldShiftTypeId ? typeMap.get(log.oldShiftTypeId) : undefined,
@@ -606,34 +639,33 @@ export class DataService {
   }
 
   static async createChangeLog(log: Omit<ShiftChangeLog, 'id' | 'userId' | 'createdAt'>): Promise<void> {
+    const userId = this.getCurrentUserId();
     const newLog: ShiftChangeLog = {
       ...log,
-      id: 'log-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      userId: 'local-user',
+      id: generateUuid(),
+      userId,
       createdAt: new Date().toISOString(),
     };
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from('shift_change_logs').insert({
-            user_id: user.id,
-            shift_id: log.shiftId || null,
-            change_type: log.changeType,
-            old_shift_date: log.oldShiftDate || null,
-            new_shift_date: log.newShiftDate || null,
-            old_shift_type_id: log.oldShiftTypeId || null,
-            new_shift_type_id: log.newShiftTypeId || null,
-            old_start_time: log.oldStartTime || null,
-            new_start_time: log.newStartTime || null,
-            old_end_time: log.oldEndTime || null,
-            new_end_time: log.newEndTime || null,
-            reason: log.reason || null,
-            source: log.source || 'manual',
-            source_message: log.sourceMessage || null,
-          });
-        }
+        await supabase.from('shift_change_logs').insert({
+          id: newLog.id,
+          user_id: userId,
+          shift_id: log.shiftId && isValidUuid(log.shiftId) ? log.shiftId : null,
+          change_type: log.changeType,
+          old_shift_date: log.oldShiftDate || null,
+          new_shift_date: log.newShiftDate || null,
+          old_shift_type_id: log.oldShiftTypeId && isValidUuid(log.oldShiftTypeId) ? log.oldShiftTypeId : null,
+          new_shift_type_id: log.newShiftTypeId && isValidUuid(log.newShiftTypeId) ? log.newShiftTypeId : null,
+          old_start_time: log.oldStartTime || null,
+          new_start_time: log.newStartTime || null,
+          old_end_time: log.oldEndTime || null,
+          new_end_time: log.newEndTime || null,
+          reason: log.reason || null,
+          source: log.source || 'manual',
+          source_message: log.sourceMessage || null,
+        });
       } catch (e) {
         console.warn('Supabase createChangeLog failed:', e);
       }
@@ -655,9 +687,9 @@ export class DataService {
           .order('is_pinned', { ascending: false })
           .order('created_at', { ascending: false });
         if (!error && data) {
-          return data.map((d) => ({
+          const list = data.map((d) => ({
             id: d.id,
-            userId: d.user_id,
+            userId: d.user_id || DEFAULT_USER_ID,
             shiftId: d.shift_id,
             noteDate: d.note_date,
             title: d.title,
@@ -666,6 +698,8 @@ export class DataService {
             createdAt: d.created_at,
             updatedAt: d.updated_at,
           }));
+          setLocalItem('personal_notes', list);
+          return list;
         }
       } catch (e) {
         console.warn('Supabase getNotes failed:', e);
@@ -675,34 +709,32 @@ export class DataService {
   }
 
   static async createNote(note: Omit<PersonalNote, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<PersonalNote> {
+    const userId = this.getCurrentUserId();
     const newNote: PersonalNote = {
       ...note,
-      id: 'note-' + Date.now(),
-      userId: 'local-user',
+      id: generateUuid(),
+      userId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data, error } = await supabase
-            .from('personal_notes')
-            .insert({
-              user_id: user.id,
-              shift_id: note.shiftId || null,
-              note_date: note.noteDate || null,
-              title: note.title,
-              content: note.content,
-              is_pinned: note.isPinned,
-            })
-            .select()
-            .single();
-          if (!error && data) {
-            newNote.id = data.id;
-            newNote.userId = data.user_id;
-          }
+        const { data, error } = await supabase
+          .from('personal_notes')
+          .insert({
+            id: newNote.id,
+            user_id: userId,
+            shift_id: note.shiftId && isValidUuid(note.shiftId) ? note.shiftId : null,
+            note_date: note.noteDate || null,
+            title: note.title,
+            content: note.content,
+            is_pinned: note.isPinned,
+          })
+          .select()
+          .single();
+        if (!error && data) {
+          newNote.id = data.id;
         }
       } catch (e) {
         console.warn('Supabase createNote failed:', e);
@@ -716,7 +748,7 @@ export class DataService {
   }
 
   static async deleteNote(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
         await supabase.from('personal_notes').delete().eq('id', id);
       } catch (e) {
@@ -743,24 +775,21 @@ export class DataService {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data, error } = await supabase
-            .from('reminder_settings')
-            .select('*')
-            .eq('user_id', user.id)
-            .single();
-          if (!error && data) {
-            return {
-              id: data.id,
-              userId: data.user_id,
-              enabled: data.enabled,
-              dayBeforeEnabled: data.day_before_enabled,
-              dayBeforeTime: data.day_before_time?.slice(0, 5) || '20:00',
-              minutesBeforeShift: data.minutes_before_shift || 60,
-              browserNotificationsEnabled: data.browser_notifications_enabled || false,
-            };
-          }
+        const { data, error } = await supabase
+          .from('reminder_settings')
+          .select('*')
+          .limit(1)
+          .single();
+        if (!error && data) {
+          return {
+            id: data.id,
+            userId: data.user_id || DEFAULT_USER_ID,
+            enabled: data.enabled,
+            dayBeforeEnabled: data.day_before_enabled,
+            dayBeforeTime: data.day_before_time?.slice(0, 5) || '20:00',
+            minutesBeforeShift: data.minutes_before_shift || 60,
+            browserNotificationsEnabled: data.browser_notifications_enabled || false,
+          };
         }
       } catch (e) {
         console.warn('Supabase getReminderSettings failed:', e);
@@ -772,21 +801,20 @@ export class DataService {
   static async updateReminderSettings(settings: Partial<ReminderSetting>): Promise<ReminderSetting> {
     const current = await this.getReminderSettings();
     const updated = { ...current, ...settings };
+    const userId = this.getCurrentUserId();
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from('reminder_settings').upsert({
-            user_id: user.id,
-            enabled: updated.enabled,
-            day_before_enabled: updated.dayBeforeEnabled,
-            day_before_time: updated.dayBeforeTime,
-            minutes_before_shift: updated.minutesBeforeShift,
-            browser_notifications_enabled: updated.browserNotificationsEnabled,
-            updated_at: new Date().toISOString(),
-          });
-        }
+        await supabase.from('reminder_settings').upsert({
+          id: updated.id && isValidUuid(updated.id) ? updated.id : generateUuid(),
+          user_id: userId,
+          enabled: updated.enabled,
+          day_before_enabled: updated.dayBeforeEnabled,
+          day_before_time: updated.dayBeforeTime,
+          minutes_before_shift: updated.minutesBeforeShift,
+          browser_notifications_enabled: updated.browserNotificationsEnabled,
+          updated_at: new Date().toISOString(),
+        });
       } catch (e) {
         console.warn('Supabase updateReminderSettings failed:', e);
       }
@@ -794,13 +822,6 @@ export class DataService {
 
     setLocalItem('reminder_settings', updated);
     return updated;
-  }
-
-  // -------------------------------------------------------------
-  // INITIAL SAMPLE SHIFTS (Disabled - clean start)
-  // -------------------------------------------------------------
-  private static getInitialSampleShifts(): Shift[] {
-    return [];
   }
 
   // -------------------------------------------------------------
@@ -896,7 +917,6 @@ export class DataService {
       if (data.profile) setLocalItem('profile', data.profile);
       if (Array.isArray(data.coworkers)) setLocalItem('coworkers', data.coworkers);
       if (Array.isArray(data.shifts)) {
-        // Strip joined properties for storage
         const cleanShifts = data.shifts.map((s: ShiftWithDetails) => ({
           id: s.id,
           userId: s.userId,
@@ -945,13 +965,13 @@ export class DataService {
       const rawCoworkers = getLocalItem<Coworker[]>('coworkers', []);
       setLocalItem(
         'coworkers',
-        rawCoworkers.filter((c) => !c.id.startsWith('coworker-'))
+        rawCoworkers.filter((c) => !c.id.startsWith('sample-'))
       );
 
       const rawPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
       setLocalItem(
         'shift_coworkers',
-        rawPairs.filter((p) => !p.shiftId.startsWith('sample-') && !p.coworkerId.startsWith('coworker-'))
+        rawPairs.filter((p) => !p.shiftId.startsWith('sample-') && !p.coworkerId.startsWith('sample-'))
       );
 
       const rawNotes = getLocalItem<PersonalNote[]>('personal_notes', []);

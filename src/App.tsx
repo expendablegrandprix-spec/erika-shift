@@ -162,7 +162,8 @@ export default function App() {
           localStorage.setItem('labshift_logged_in', 'true');
           setActiveTab('today');
           setIsLoginShiftAlertOpen(true);
-          if (displayName) {
+          await loadData();
+          if (displayName && (!profile?.displayName || profile.displayName === 'ATLM Patologi Klinik')) {
             await DataService.updateProfile({ displayName });
             await loadData();
           }

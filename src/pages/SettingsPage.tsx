@@ -48,6 +48,9 @@ export const SettingsPage: React.FC<Props> = ({
   const [workUnit, setWorkUnit] = useState(profile.workUnit);
   const [photoUrl, setPhotoUrl] = useState(profile.photoUrl || '');
   const [profileSaved, setProfileSaved] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [cloudSyncSuccess, setCloudSyncSuccess] = useState(false);
 
   // Reminder form
   const [reminderEnabled, setReminderEnabled] = useState(reminders.enabled);
@@ -68,34 +71,83 @@ export const SettingsPage: React.FC<Props> = ({
   const [restoreJson, setRestoreJson] = useState('');
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image to ensure lightweight storage and instant cross-browser loading
+  const compressImage = (file: File, maxWidth = 480, maxHeight = 480, quality = 0.85): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(e.target?.result as string);
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => resolve(e.target?.result as string);
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert('Ukuran file foto maksimal 2MB.');
+      if (file.size > 8 * 1024 * 1024) {
+        alert('Ukuran file foto maksimal 8MB.');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        if (uploadEvent.target?.result) {
-          setPhotoUrl(uploadEvent.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      setIsCompressing(true);
+      try {
+        const compressed = await compressImage(file, 480, 480, 0.85);
+        setPhotoUrl(compressed);
+      } catch (err) {
+        console.error('Compress image failed:', err);
+      } finally {
+        setIsCompressing(false);
+      }
     }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    await DataService.updateProfile({
-      displayName: displayName.trim(),
-      jobTitle: jobTitle.trim(),
-      workUnit: workUnit.trim(),
-      photoUrl,
-    });
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 2500);
-    onRefresh();
+    setIsSavingProfile(true);
+    try {
+      await DataService.updateProfile({
+        displayName: displayName.trim(),
+        jobTitle: jobTitle.trim(),
+        workUnit: workUnit.trim(),
+        photoUrl,
+      });
+      setProfileSaved(true);
+      setCloudSyncSuccess(isSupabaseConfigured);
+      setTimeout(() => {
+        setProfileSaved(false);
+        setCloudSyncSuccess(false);
+      }, 4000);
+      onRefresh();
+    } catch (err) {
+      console.error('Save profile failed:', err);
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   const handleSaveReminders = async (e: React.FormEvent) => {
@@ -317,18 +369,32 @@ export const SettingsPage: React.FC<Props> = ({
             />
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            {profileSaved && (
-              <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Profil berhasil disimpan!
-              </span>
-            )}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+            <div>
+              {profileSaved && (
+                <span className="text-emerald-700 font-semibold flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {cloudSyncSuccess
+                      ? 'Foto & profil tersimpan di Supabase Cloud (tersinkronisasi di semua browser)!'
+                      : 'Profil berhasil disimpan ke peramban!'}
+                  </span>
+                </span>
+              )}
+            </div>
             <button
               type="submit"
-              className="ml-auto px-4 py-2 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 cursor-pointer shadow-xs"
+              disabled={isSavingProfile || isCompressing}
+              className="px-5 py-2.5 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 disabled:opacity-50 cursor-pointer shadow-xs flex items-center justify-center gap-2"
             >
-              Simpan Profil
+              {isSavingProfile ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Menyimpan ke Cloud...</span>
+                </>
+              ) : (
+                <span>Simpan Profil & Foto</span>
+              )}
             </button>
           </div>
         </form>

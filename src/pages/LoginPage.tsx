@@ -6,6 +6,8 @@
 import React, { useState } from 'react';
 import { LogIn, KeyRound, Mail, Lock, User, ShieldCheck, Sparkles, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { APP_METADATA } from '../lib/constants.ts';
+import { supabase, isSupabaseConfigured } from '../lib/supabase.ts';
+import { generateUuid } from '../services/dataService.ts';
 
 interface LoginPageProps {
   onLoginSuccess: (email: string, displayName?: string) => void;
@@ -14,6 +16,7 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isForgotMode, setIsForgotMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form fields (clean initial states)
   const [loginIdentifier, setLoginIdentifier] = useState(() => {
@@ -35,7 +38,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [logoError, setLogoError] = useState(false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -49,6 +52,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       return;
     }
 
+    setIsSubmitting(true);
+
     const regEmail = localStorage.getItem('labshift_user_email') || 'atlm@rsudssma.pontianak.go.id';
     const regPass = localStorage.getItem('labshift_user_pass') || 'atlm123';
     const regName = localStorage.getItem('labshift_user_name') || 'ATLM Patologi Klinik';
@@ -60,25 +65,83 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     const matchFirstName = inputClean === regFirstName.toLowerCase();
     const isDefaultDemo = inputClean === 'atlm' || inputClean === 'atlm patologi klinik' || inputClean === 'atlm@rsudssma.pontianak.go.id';
 
+    // 1. Sync & verify with Supabase cloud database to support multiple browsers
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data: profiles, error: pErr } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('updated_at', { ascending: false });
+
+        if (!pErr && profiles && profiles.length > 0) {
+          const matched = profiles.find((p) => {
+            const pName = (p.display_name || '').toLowerCase();
+            const pFirst = pName.split(/[\s,]+/)[0];
+            const pEmail = (p.email || '').toLowerCase();
+            return inputClean === pName || inputClean === pFirst || inputClean === pEmail;
+          });
+
+          if (matched) {
+            // Check password if stored in Supabase
+            if (!matched.password || matched.password === password || password === regPass || (isDefaultDemo && password === 'atlm123')) {
+              localStorage.setItem('labshift_user_id', matched.id);
+              localStorage.setItem('labshift_user_name', matched.display_name);
+              localStorage.setItem('labshift_user_firstname', (matched.display_name || '').split(/[\s,]+/)[0]);
+              if (matched.email) localStorage.setItem('labshift_user_email', matched.email);
+              localStorage.setItem('labshift_user_pass', password);
+
+              // Cache user profile including photo_url so it immediately appears in this browser
+              localStorage.setItem(
+                'labshift_personal_profile',
+                JSON.stringify({
+                  id: matched.id,
+                  displayName: matched.display_name || 'ATLM Patologi Klinik',
+                  jobTitle: matched.job_title || 'Ahli Teknologi Laboratorium Medik (ATLM)',
+                  workUnit: matched.work_unit || 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
+                  photoUrl: matched.photo_url || undefined,
+                })
+              );
+
+              setIsSubmitting(false);
+              onLoginSuccess(matched.email || regEmail, matched.display_name);
+              return;
+            } else {
+              setIsSubmitting(false);
+              setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase profile query during login:', err);
+      }
+    }
+
+    // 2. Fallback to local storage validation
     if (matchEmail || matchName || matchFirstName || isDefaultDemo) {
       if (password === regPass || (isDefaultDemo && password === 'atlm123')) {
+        setIsSubmitting(false);
         onLoginSuccess(regEmail, regName);
       } else {
+        setIsSubmitting(false);
         setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
       }
     } else {
-      // If user typed any other registered name or custom string
       if (password.length >= 5) {
         const resolvedEmail = loginIdentifier.includes('@') ? loginIdentifier : regEmail;
         const resolvedName = loginIdentifier.includes('@') ? regName : loginIdentifier;
+        localStorage.setItem('labshift_user_name', resolvedName);
+        localStorage.setItem('labshift_user_pass', password);
+        setIsSubmitting(false);
         onLoginSuccess(resolvedEmail, resolvedName);
       } else {
+        setIsSubmitting(false);
         setErrorMsg('Nama atau email tidak dikenali, atau kata sandi minimal 5 karakter.');
       }
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -92,13 +155,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       return;
     }
 
+    setIsSubmitting(true);
+    const userId = generateUuid();
+
     // Save user credentials in localStorage
+    localStorage.setItem('labshift_user_id', userId);
     localStorage.setItem('labshift_user_email', email);
     localStorage.setItem('labshift_user_pass', password);
     localStorage.setItem('labshift_user_name', displayName);
     const firstName = displayName.split(/[\s,]+/)[0];
     localStorage.setItem('labshift_user_firstname', firstName);
 
+    // Also persist profile directly into Supabase profiles table for cross-device sync
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from('profiles').upsert({
+          id: userId,
+          display_name: displayName.trim(),
+          email: email.trim(),
+          password: password,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('Supabase register profile upsert failed:', err);
+      }
+    }
+
+    setIsSubmitting(false);
     setSuccessMsg('Akun berhasil dibuat! Silakan masuk dengan nama atau email Anda.');
     setTimeout(() => {
       setSuccessMsg(null);
@@ -107,7 +190,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }, 1500);
   };
 
-  const handleResetPasswordSubmit = (e: React.FormEvent) => {
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
@@ -126,8 +209,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    // Update password in localStorage
+    setIsSubmitting(true);
     localStorage.setItem('labshift_user_pass', newPassword);
+
+    // Sync to Supabase
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase
+          .from('profiles')
+          .update({
+            password: newPassword,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('email', forgotEmail.trim());
+      } catch (err) {
+        console.warn('Supabase reset password sync failed:', err);
+      }
+    }
+
+    setIsSubmitting(false);
     setResetStep('success');
     setSuccessMsg('Kata sandi berhasil direset! Anda sekarang dapat masuk dengan kata sandi baru.');
   };
