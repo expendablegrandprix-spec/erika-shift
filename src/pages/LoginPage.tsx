@@ -54,18 +54,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
     setIsSubmitting(true);
 
-    const regEmail = localStorage.getItem('labshift_user_email') || 'atlm@rsudssma.pontianak.go.id';
-    const regPass = localStorage.getItem('labshift_user_pass') || 'atlm123';
-    const regName = localStorage.getItem('labshift_user_name') || 'ATLM Patologi Klinik';
-    const regFirstName = localStorage.getItem('labshift_user_firstname') || 'ATLM';
-
     const inputClean = loginIdentifier.trim().toLowerCase();
-    const matchEmail = inputClean === regEmail.toLowerCase();
-    const matchName = inputClean === regName.toLowerCase();
-    const matchFirstName = inputClean === regFirstName.toLowerCase();
-    const isDefaultDemo = inputClean === 'atlm' || inputClean === 'atlm patologi klinik' || inputClean === 'atlm@rsudssma.pontianak.go.id';
 
-    // 1. Sync & verify with Supabase cloud database to support multiple browsers
+    // Default demo user check
+    const defaultEmail = 'atlm@rsudssma.pontianak.go.id';
+    const defaultPass = 'atlm123';
+    const defaultName = 'ATLM Patologi Klinik';
+    const defaultFirstName = 'atlm';
+
+    const isDefault = 
+      inputClean === defaultEmail || 
+      inputClean === defaultName.toLowerCase() || 
+      inputClean === defaultFirstName ||
+      inputClean === 'atlm';
+
+    if (isDefault) {
+      if (password === defaultPass || password === 'atlm123') {
+        setIsSubmitting(false);
+        localStorage.setItem('labshift_user_id', 'default-atlm-user-id');
+        localStorage.setItem('labshift_user_name', defaultName);
+        localStorage.setItem('labshift_user_firstname', 'ATLM');
+        localStorage.setItem('labshift_user_email', defaultEmail);
+        localStorage.setItem('labshift_user_pass', defaultPass);
+        onLoginSuccess(defaultEmail, defaultName);
+        return;
+      } else {
+        setIsSubmitting(false);
+        setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
+        return;
+      }
+    }
+
+    // 1. Check in Supabase profiles table
     if (isSupabaseConfigured && supabase) {
       try {
         const { data: profiles, error: pErr } = await supabase
@@ -82,15 +102,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           });
 
           if (matched) {
-            // Check password if stored in Supabase
-            if (!matched.password || matched.password === password || password === regPass || (isDefaultDemo && password === 'atlm123')) {
+            if (!matched.password || matched.password === password) {
               localStorage.setItem('labshift_user_id', matched.id);
               localStorage.setItem('labshift_user_name', matched.display_name);
               localStorage.setItem('labshift_user_firstname', (matched.display_name || '').split(/[\s,]+/)[0]);
               if (matched.email) localStorage.setItem('labshift_user_email', matched.email);
               localStorage.setItem('labshift_user_pass', password);
 
-              // Cache user profile including photo_url so it immediately appears in this browser
               localStorage.setItem(
                 'labshift_personal_profile',
                 JSON.stringify({
@@ -103,7 +121,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               );
 
               setIsSubmitting(false);
-              onLoginSuccess(matched.email || regEmail, matched.display_name);
+              onLoginSuccess(matched.email || defaultEmail, matched.display_name);
               return;
             } else {
               setIsSubmitting(false);
@@ -117,28 +135,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       }
     }
 
-    // 2. Fallback to local storage validation
-    if (matchEmail || matchName || matchFirstName || isDefaultDemo) {
-      if (password === regPass || (isDefaultDemo && password === 'atlm123')) {
-        setIsSubmitting(false);
-        onLoginSuccess(regEmail, regName);
-      } else {
-        setIsSubmitting(false);
-        setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
+    // 2. Check local registered users list (`labshift_registered_users`)
+    try {
+      const registeredUsers = JSON.parse(localStorage.getItem('labshift_registered_users') || '[]');
+      const localMatched = registeredUsers.find((u: any) => {
+        const uName = (u.displayName || '').toLowerCase();
+        const uFirst = uName.split(/[\s,]+/)[0];
+        const uEmail = (u.email || '').toLowerCase();
+        return inputClean === uName || inputClean === uFirst || inputClean === uEmail;
+      });
+
+      if (localMatched) {
+        if (localMatched.password === password) {
+          localStorage.setItem('labshift_user_id', localMatched.id);
+          localStorage.setItem('labshift_user_name', localMatched.displayName);
+          localStorage.setItem('labshift_user_firstname', (localMatched.displayName || '').split(/[\s,]+/)[0]);
+          localStorage.setItem('labshift_user_email', localMatched.email);
+          localStorage.setItem('labshift_user_pass', password);
+
+          setIsSubmitting(false);
+          onLoginSuccess(localMatched.email, localMatched.displayName);
+          return;
+        } else {
+          setIsSubmitting(false);
+          setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
+          return;
+        }
       }
-    } else {
-      if (password.length >= 5) {
-        const resolvedEmail = loginIdentifier.includes('@') ? loginIdentifier : regEmail;
-        const resolvedName = loginIdentifier.includes('@') ? regName : loginIdentifier;
-        localStorage.setItem('labshift_user_name', resolvedName);
-        localStorage.setItem('labshift_user_pass', password);
-        setIsSubmitting(false);
-        onLoginSuccess(resolvedEmail, resolvedName);
-      } else {
-        setIsSubmitting(false);
-        setErrorMsg('Nama atau email tidak dikenali, atau kata sandi minimal 5 karakter.');
-      }
+    } catch (e) {
+      console.warn('Local registered users check error:', e);
     }
+
+    // If not found anywhere, reject! Only registered accounts can log in.
+    setIsSubmitting(false);
+    setErrorMsg('Akun tidak terdaftar. Silakan buat akun baru terlebih dahulu.');
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -158,7 +188,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setIsSubmitting(true);
     const userId = generateUuid();
 
-    // Save user credentials in localStorage
+    // Save user credentials in local registered users list
+    try {
+      const registeredUsers = JSON.parse(localStorage.getItem('labshift_registered_users') || '[]');
+      const exists = registeredUsers.some((u: any) => u.email.toLowerCase() === email.trim().toLowerCase() || u.displayName.toLowerCase() === displayName.trim().toLowerCase());
+      if (!exists) {
+        registeredUsers.push({
+          id: userId,
+          email: email.trim(),
+          password: password,
+          displayName: displayName.trim(),
+        });
+        localStorage.setItem('labshift_registered_users', JSON.stringify(registeredUsers));
+      }
+    } catch (e) {
+      console.warn('Error saving to registered users:', e);
+    }
+
+    // Save active session credentials
     localStorage.setItem('labshift_user_id', userId);
     localStorage.setItem('labshift_user_email', email);
     localStorage.setItem('labshift_user_pass', password);
