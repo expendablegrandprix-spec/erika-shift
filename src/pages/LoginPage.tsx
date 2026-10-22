@@ -233,6 +233,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       const firstName = u.displayName.split(/[\s,]+/)[0];
       localStorage.setItem('labshift_user_firstname', firstName);
 
+      // Persist profile to Supabase database if configured
+      if (isSupabaseConfigured && supabase) {
+        try {
+          await supabase.from('profiles').upsert({
+            id: u.id,
+            display_name: u.displayName,
+            email: u.email,
+            password: password,
+            job_title: 'Ahli Teknologi Laboratorium Medik (ATLM)',
+            work_unit: 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
+            updated_at: new Date().toISOString(),
+          });
+        } catch (sErr) {
+          console.warn('Supabase registration sync skipped:', sErr);
+        }
+      }
+
       // Pre-sync server state
       await DataService.syncWithServer();
 

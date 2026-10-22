@@ -10,9 +10,16 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { parseScheduleMessageOffline } from './src/lib/aiParserService.ts';
 
+import { createClient } from '@supabase/supabase-js';
 import { getDatabase, saveDatabase, ServerUser } from './serverDb.ts';
 
 dotenv.config();
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const serverSupabase = supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your-project')
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +46,7 @@ app.get('/api/auth/users', (_req, res) => {
 });
 
 // Register a new ATLM user account
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, displayName, role } = req.body;
     if (!email || !password || !displayName) {
@@ -74,6 +81,21 @@ app.post('/api/auth/register', (req, res) => {
 
     db.users.push(newUser);
     saveDatabase(db);
+
+    if (serverSupabase) {
+      try {
+        await serverSupabase.from('profiles').upsert({
+          id: newUser.id,
+          display_name: newUser.displayName,
+          email: newUser.email,
+          password: newUser.password,
+          job_title: newUser.role,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (sErr) {
+        console.warn('Server Supabase register upsert skipped:', sErr);
+      }
+    }
 
     res.json({
       success: true,

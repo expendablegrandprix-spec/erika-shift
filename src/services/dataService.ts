@@ -337,8 +337,9 @@ export class DataService {
     this.notifyDataChanged();
     this.pushToServer().catch(() => {});
 
-    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
+    if (isSupabaseConfigured && supabase) {
       try {
+        await supabase.from('shift_coworkers').delete().eq('coworker_id', id);
         await supabase.from('coworkers').delete().eq('id', id);
       } catch (e) {
         console.warn('Supabase deleteCoworker sync skipped:', e);
@@ -589,7 +590,7 @@ export class DataService {
   }
 
   static async deleteShift(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
+    if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('shift_coworkers').delete().eq('shift_id', id);
         await supabase.from('shift_task_checks').delete().eq('shift_id', id);
@@ -842,7 +843,7 @@ export class DataService {
   }
 
   static async deleteNote(id: string): Promise<void> {
-    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
+    if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('personal_notes').delete().eq('id', id);
       } catch (e) {
@@ -1175,6 +1176,17 @@ export class DataService {
         rawNotes.filter((n) => !n.id.startsWith('sample-'))
       );
 
+      if (isSupabaseConfigured && supabase) {
+        try {
+          supabase.from('shifts').delete().like('id', 'sample-%').then(() => {});
+          supabase.from('coworkers').delete().like('id', 'sample-%').then(() => {});
+          supabase.from('personal_notes').delete().like('id', 'sample-%').then(() => {});
+          supabase.from('shift_change_logs').delete().like('id', 'sample-%').then(() => {});
+        } catch (sErr) {
+          console.warn('Supabase clearAllDummyData failed:', sErr);
+        }
+      }
+
       this.notifyDataChanged();
       this.pushToServer().catch(() => {});
     } catch (e) {
@@ -1184,6 +1196,13 @@ export class DataService {
 
   static async clearAllChangeLogs(): Promise<void> {
     setLocalItem('shift_change_logs', []);
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from('shift_change_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      } catch (sErr) {
+        console.warn('Supabase clearAllChangeLogs failed:', sErr);
+      }
+    }
     this.notifyDataChanged();
     await this.pushToServer();
   }
@@ -1195,6 +1214,21 @@ export class DataService {
     setLocalItem('shift_task_checks', []);
     setLocalItem('shift_change_logs', []);
     setLocalItem('personal_notes', []);
+    setLocalItem('coworkers', []);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        await supabase.from('shift_coworkers').delete().neq('shift_id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('shift_task_checks').delete().neq('shift_id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('shifts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('coworkers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('personal_notes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('shift_change_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      } catch (sErr) {
+        console.warn('Supabase clearAllData failed:', sErr);
+      }
+    }
+
     this.notifyDataChanged();
     await this.pushToServer();
   }
