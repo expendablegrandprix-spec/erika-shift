@@ -85,32 +85,19 @@ export const Header: React.FC<Props> = ({ onOpenSearch, onOpenSettings }) => {
             <span className="hidden sm:inline">Cari...</span>
           </button>
 
-          {/* Supabase status badge */}
+          {/* Server Cloud Sync Status Badge */}
           <button
             type="button"
             onClick={onOpenSettings}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-              isSupabaseConfigured
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-            }`}
-            title={
-              isSupabaseConfigured
-                ? 'Tersambung ke Supabase Cloud DB'
-                : 'Penyimpanan lokal aktif (Klik untuk hubungkan Supabase)'
-            }
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer shadow-2xs"
+            title="Tersambung ke Server LabShift & Sinkron Lintas Peramban (Real-time Sync)"
           >
-            {isSupabaseConfigured ? (
-              <>
-                <Database className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="hidden md:inline">Supabase Cloud</span>
-              </>
-            ) : (
-              <>
-                <Database className="w-3.5 h-3.5 text-slate-500" />
-                <span className="hidden md:inline">Lokal / Offline</span>
-              </>
-            )}
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="hidden md:inline">Server Terhubung</span>
           </button>
         </div>
       </div>

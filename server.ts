@@ -10,6 +10,8 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { parseScheduleMessageOffline } from './src/lib/aiParserService.ts';
 
+import { getDatabase, saveDatabase, ServerUser } from './serverDb.ts';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +20,194 @@ const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json({ limit: '15mb' }));
+
+// -------------------------------------------------------------
+// AUTHENTICATION & MULTI-BROWSER CONNECTIVITY ENDPOINTS
+// -------------------------------------------------------------
+
+// List all registered accounts (public user metadata for lookup)
+app.get('/api/auth/users', (_req, res) => {
+  const db = getDatabase();
+  const safeUsers = db.users.map((u) => ({
+    id: u.id,
+    email: u.email,
+    displayName: u.displayName,
+    role: u.role || 'ATLM',
+    createdAt: u.createdAt,
+  }));
+  res.json({ users: safeUsers });
+});
+
+// Register a new ATLM user account
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { email, password, displayName, role } = req.body;
+    if (!email || !password || !displayName) {
+      res.status(400).json({ error: 'Harap lengkapi semua kolom pendaftaran.' });
+      return;
+    }
+
+    const db = getDatabase();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = displayName.trim();
+
+    // Check if user already exists
+    const existing = db.users.find(
+      (u) =>
+        u.email.toLowerCase() === cleanEmail ||
+        u.displayName.toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existing) {
+      res.status(409).json({ error: 'Email atau Nama Pengguna ini sudah terdaftar.' });
+      return;
+    }
+
+    const newUser: ServerUser = {
+      id: 'usr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      email: cleanEmail,
+      password: String(password),
+      displayName: cleanName,
+      role: role || 'Ahli Teknologi Laboratorium Medik (ATLM)',
+      createdAt: new Date().toISOString(),
+    };
+
+    db.users.push(newUser);
+    saveDatabase(db);
+
+    res.json({
+      success: true,
+      message: 'Akun berhasil didaftarkan.',
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        displayName: newUser.displayName,
+        role: newUser.role,
+      },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Server error';
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Login authentication
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { identifier, password } = req.body;
+    if (!identifier || !password) {
+      res.status(400).json({ error: 'Harap masukkan Nama / Email dan Kata Sandi.' });
+      return;
+    }
+
+    const db = getDatabase();
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanPass = String(password);
+
+    // Look for matching user in server database
+    const matched = db.users.find((u) => {
+      const uEmail = u.email.toLowerCase();
+      const uName = u.displayName.toLowerCase();
+      const uFirst = uName.split(/[\s,]+/)[0];
+      return cleanId === uEmail || cleanId === uName || cleanId === uFirst;
+    });
+
+    if (!matched) {
+      res.status(401).json({
+        error: 'Akun tidak terdaftar. Silakan buat akun baru terlebih dahulu.',
+      });
+      return;
+    }
+
+    if (matched.password && matched.password !== cleanPass) {
+      res.status(401).json({
+        error: 'Kata sandi yang Anda masukkan salah. Silakan periksa kembali.',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: matched.id,
+        email: matched.email,
+        displayName: matched.displayName,
+        role: matched.role || 'ATLM',
+      },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Server error';
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Password reset endpoint
+app.post('/api/auth/reset-password', (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    if (!email || !newPassword) {
+      res.status(400).json({ error: 'Harap masukkan email dan kata sandi baru.' });
+      return;
+    }
+    const db = getDatabase();
+    const cleanEmail = email.trim().toLowerCase();
+    const user = db.users.find((u) => u.email.toLowerCase() === cleanEmail);
+    if (!user) {
+      res.status(404).json({ error: 'Akun dengan email ini tidak ditemukan.' });
+      return;
+    }
+    user.password = String(newPassword);
+    saveDatabase(db);
+    res.json({ success: true, message: 'Kata sandi berhasil diperbarui.' });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Server error';
+    res.status(500).json({ error: msg });
+  }
+});
+
+// -------------------------------------------------------------
+// REAL-TIME CLOUD SYNC ENDPOINTS (ACROSS ALL BROWSERS)
+// -------------------------------------------------------------
+
+// Pull full database state for cross-browser synchronization
+app.get('/api/sync', (_req, res) => {
+  try {
+    const db = getDatabase();
+    res.json({
+      profile: db.profile,
+      shifts: db.shifts,
+      shift_coworkers: db.shift_coworkers,
+      coworkers: db.coworkers,
+      coworker_matrix_assignments: db.coworker_matrix_assignments,
+      change_logs: db.change_logs,
+      notes: db.notes,
+      reminders: db.reminders,
+      updatedAt: db.updatedAt,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Gagal mengambil data sinkronisasi.' });
+  }
+});
+
+// Push client updates to server database
+app.post('/api/sync', (req, res) => {
+  try {
+    const { shifts, shift_coworkers, coworkers, coworker_matrix_assignments, notes, profile } = req.body;
+    const db = getDatabase();
+
+    if (Array.isArray(shifts)) db.shifts = shifts;
+    if (Array.isArray(shift_coworkers)) db.shift_coworkers = shift_coworkers;
+    if (Array.isArray(coworkers)) db.coworkers = coworkers;
+    if (Array.isArray(coworker_matrix_assignments)) db.coworker_matrix_assignments = coworker_matrix_assignments;
+    if (Array.isArray(notes)) db.notes = notes;
+    if (profile && typeof profile === 'object') db.profile = { ...db.profile, ...profile };
+
+    saveDatabase(db);
+    res.json({ success: true, updatedAt: db.updatedAt });
+  } catch (err) {
+    res.status(500).json({ error: 'Gagal menyimpan sinkronisasi data.' });
+  }
+});
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {

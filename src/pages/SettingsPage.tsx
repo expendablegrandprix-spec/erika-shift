@@ -164,7 +164,7 @@ export const SettingsPage: React.FC<Props> = ({
     onRefresh();
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordMsg(null);
 
@@ -176,6 +176,19 @@ export const SettingsPage: React.FC<Props> = ({
     if (newPassword !== confirmPassword) {
       setPasswordMsg({ success: false, text: 'Konfirmasi kata sandi baru tidak cocok.' });
       return;
+    }
+
+    const currentEmail = localStorage.getItem('labshift_user_email') || '';
+    if (currentEmail) {
+      try {
+        await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: currentEmail, newPassword }),
+        });
+      } catch (err) {
+        console.warn('Reset password error:', err);
+      }
     }
 
     localStorage.setItem('labshift_user_pass', newPassword);

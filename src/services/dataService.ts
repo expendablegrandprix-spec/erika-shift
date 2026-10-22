@@ -207,6 +207,7 @@ export class DataService {
 
     setLocalItem('profile', updated);
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
     return updated;
   }
 
@@ -292,6 +293,7 @@ export class DataService {
       }
     }
 
+    this.pushToServer().catch(() => {});
     return newCoworker;
   }
 
@@ -300,6 +302,7 @@ export class DataService {
     const updatedList = coworkers.map((c) => (c.id === id ? { ...c, ...updates } : c));
     setLocalItem('coworkers', updatedList);
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
 
     if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
@@ -333,6 +336,7 @@ export class DataService {
     setLocalItem('coworker_matrix_assignments', matrixAssignments.filter((a) => a.coworkerId !== id));
 
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
 
     if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
@@ -495,6 +499,7 @@ export class DataService {
     });
 
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
 
     const all = await this.getShifts();
     return all.find((s) => s.id === newShift.id) || (newShift as ShiftWithDetails);
@@ -577,6 +582,7 @@ export class DataService {
     });
 
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
   }
 
   static async cancelShift(id: string, reason = 'Shift dibatalkan / tukar jadwal'): Promise<void> {
@@ -598,6 +604,7 @@ export class DataService {
     const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
     setLocalItem('shift_coworkers', currentPairs.filter((p) => p.shiftId !== id));
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
   }
 
   // -------------------------------------------------------------
@@ -615,6 +622,7 @@ export class DataService {
     }
     setLocalItem('coworker_matrix_assignments', filtered);
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
   }
 
   static batchSaveMatrix(
@@ -633,6 +641,7 @@ export class DataService {
     }
     setLocalItem('coworker_matrix_assignments', updatedMatrix);
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
   }
 
   // -------------------------------------------------------------
@@ -829,6 +838,7 @@ export class DataService {
     const current = await this.getNotes();
     setLocalItem('personal_notes', [newNote, ...current]);
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
     return newNote;
   }
 
@@ -844,6 +854,7 @@ export class DataService {
     const current = await this.getNotes();
     setLocalItem('personal_notes', current.filter((n) => n.id !== id));
     this.notifyDataChanged();
+    this.pushToServer().catch(() => {});
   }
 
   // -------------------------------------------------------------
@@ -1031,11 +1042,110 @@ export class DataService {
   }
 
   // -------------------------------------------------------------
-  // REAL-TIME SYNC & DUMMY CLEANER
+  // REAL-TIME SYNC & CROSS-BROWSER CONNECTIVITY
   // -------------------------------------------------------------
   static notifyDataChanged(): void {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('labshift_data_changed'));
+    }
+  }
+
+  static async syncWithServer(): Promise<boolean> {
+    if (typeof window === 'undefined' || typeof fetch === 'undefined') return false;
+    try {
+      const res = await fetch('/api/sync');
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data) return false;
+
+      let changed = false;
+
+      if (data.profile && typeof data.profile === 'object') {
+        const localProfile = getLocalItem<UserProfile>('profile', DEFAULT_PROFILE);
+        if (JSON.stringify(localProfile) !== JSON.stringify(data.profile)) {
+          setLocalItem('profile', data.profile);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(data.coworkers)) {
+        const localCoworkers = getLocalItem<Coworker[]>('coworkers', []);
+        if (JSON.stringify(localCoworkers) !== JSON.stringify(data.coworkers)) {
+          setLocalItem('coworkers', data.coworkers);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(data.shifts)) {
+        const localShifts = getLocalItem<Shift[]>('shifts', []);
+        if (JSON.stringify(localShifts) !== JSON.stringify(data.shifts)) {
+          setLocalItem('shifts', data.shifts);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(data.shift_coworkers)) {
+        const localPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
+        if (JSON.stringify(localPairs) !== JSON.stringify(data.shift_coworkers)) {
+          setLocalItem('shift_coworkers', data.shift_coworkers);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(data.coworker_matrix_assignments)) {
+        const localMatrix = getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []);
+        if (JSON.stringify(localMatrix) !== JSON.stringify(data.coworker_matrix_assignments)) {
+          setLocalItem('coworker_matrix_assignments', data.coworker_matrix_assignments);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(data.change_logs)) {
+        const localLogs = getLocalItem<ShiftChangeLog[]>('shift_change_logs', []);
+        if (JSON.stringify(localLogs) !== JSON.stringify(data.change_logs)) {
+          setLocalItem('shift_change_logs', data.change_logs);
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(data.notes)) {
+        const localNotes = getLocalItem<PersonalNote[]>('personal_notes', []);
+        if (JSON.stringify(localNotes) !== JSON.stringify(data.notes)) {
+          setLocalItem('personal_notes', data.notes);
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        this.notifyDataChanged();
+      }
+      return changed;
+    } catch {
+      return false;
+    }
+  }
+
+  static async pushToServer(): Promise<boolean> {
+    if (typeof window === 'undefined' || typeof fetch === 'undefined') return false;
+    try {
+      const payload = {
+        profile: getLocalItem<UserProfile>('profile', DEFAULT_PROFILE),
+        coworkers: getLocalItem<Coworker[]>('coworkers', []),
+        shifts: getLocalItem<Shift[]>('shifts', []),
+        shift_coworkers: getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []),
+        coworker_matrix_assignments: getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []),
+        notes: getLocalItem<PersonalNote[]>('personal_notes', []),
+      };
+
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 
@@ -1066,6 +1176,7 @@ export class DataService {
       );
 
       this.notifyDataChanged();
+      this.pushToServer().catch(() => {});
     } catch (e) {
       console.warn('Error clearing dummy data:', e);
     }
@@ -1079,6 +1190,29 @@ export class DataService {
     if (typeof window !== 'undefined') {
       window.addEventListener('labshift_data_changed', handleLocalChange);
       window.addEventListener('storage', handleLocalChange);
+    }
+
+    // Trigger initial server pull on subscriber mount
+    this.syncWithServer().then((changed) => {
+      if (changed) onUpdate();
+    });
+
+    // Cross-browser polling: pull updates made by other browsers or devices
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    const handleFocus = () => {
+      this.syncWithServer().then((changed) => {
+        if (changed) onUpdate();
+      });
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('online', handleFocus);
+      pollInterval = setInterval(() => {
+        this.syncWithServer().then((changed) => {
+          if (changed) onUpdate();
+        });
+      }, 6000);
     }
 
     let supabaseChannel: RealtimeChannel | null = null;
@@ -1118,6 +1252,9 @@ export class DataService {
       if (typeof window !== 'undefined') {
         window.removeEventListener('labshift_data_changed', handleLocalChange);
         window.removeEventListener('storage', handleLocalChange);
+        window.removeEventListener('focus', handleFocus);
+        window.removeEventListener('online', handleFocus);
+        if (pollInterval) clearInterval(pollInterval);
       }
       if (supabase && supabaseChannel) {
         supabase.removeChannel(supabaseChannel);

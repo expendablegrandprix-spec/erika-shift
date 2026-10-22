@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { LogIn, KeyRound, Mail, Lock, User, ShieldCheck, Sparkles, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { APP_METADATA } from '../lib/constants.ts';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.ts';
-import { generateUuid } from '../services/dataService.ts';
+import { DataService, generateUuid } from '../services/dataService.ts';
 
 interface LoginPageProps {
   onLoginSuccess: (email: string, displayName?: string) => void;
@@ -53,10 +53,55 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     setIsSubmitting(true);
-
     const inputClean = loginIdentifier.trim().toLowerCase();
 
-    // Default demo user check
+    // 1. Authenticate against Server Database (Enables cross-browser & multi-device login)
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: inputClean,
+          password: password,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success && data.user) {
+        const u = data.user;
+        localStorage.setItem('labshift_user_id', u.id);
+        localStorage.setItem('labshift_user_name', u.displayName);
+        localStorage.setItem('labshift_user_firstname', (u.displayName || '').split(/[\s,]+/)[0]);
+        if (u.email) localStorage.setItem('labshift_user_email', u.email);
+        localStorage.setItem('labshift_user_pass', password);
+
+        localStorage.setItem(
+          'labshift_personal_profile',
+          JSON.stringify({
+            id: u.id,
+            displayName: u.displayName,
+            jobTitle: u.role || 'Ahli Teknologi Laboratorium Medik (ATLM)',
+            workUnit: 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
+          })
+        );
+
+        // Synchronize all shifts, coworkers, matrix assignments from server database
+        await DataService.syncWithServer();
+
+        setIsSubmitting(false);
+        onLoginSuccess(u.email || 'atlm@rsudssma.pontianak.go.id', u.displayName);
+        return;
+      } else if (res.status === 401 || res.status === 400 || res.status === 409) {
+        setIsSubmitting(false);
+        setErrorMsg(data?.error || 'Autentikasi gagal. Silakan periksa kembali.');
+        return;
+      }
+    } catch (netErr) {
+      console.warn('Server auth login network check failed, falling back to local/demo check:', netErr);
+    }
+
+    // Default demo user fallback for offline mode
     const defaultEmail = 'atlm@rsudssma.pontianak.go.id';
     const defaultPass = 'atlm123';
     const defaultName = 'ATLM Patologi Klinik';
@@ -85,57 +130,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       }
     }
 
-    // 1. Check in Supabase profiles table
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data: profiles, error: pErr } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('updated_at', { ascending: false });
-
-        if (!pErr && profiles && profiles.length > 0) {
-          const matched = profiles.find((p) => {
-            const pName = (p.display_name || '').toLowerCase();
-            const pFirst = pName.split(/[\s,]+/)[0];
-            const pEmail = (p.email || '').toLowerCase();
-            return inputClean === pName || inputClean === pFirst || inputClean === pEmail;
-          });
-
-          if (matched) {
-            if (!matched.password || matched.password === password) {
-              localStorage.setItem('labshift_user_id', matched.id);
-              localStorage.setItem('labshift_user_name', matched.display_name);
-              localStorage.setItem('labshift_user_firstname', (matched.display_name || '').split(/[\s,]+/)[0]);
-              if (matched.email) localStorage.setItem('labshift_user_email', matched.email);
-              localStorage.setItem('labshift_user_pass', password);
-
-              localStorage.setItem(
-                'labshift_personal_profile',
-                JSON.stringify({
-                  id: matched.id,
-                  displayName: matched.display_name || 'ATLM Patologi Klinik',
-                  jobTitle: matched.job_title || 'Ahli Teknologi Laboratorium Medik (ATLM)',
-                  workUnit: matched.work_unit || 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
-                  photoUrl: matched.photo_url || undefined,
-                })
-              );
-
-              setIsSubmitting(false);
-              onLoginSuccess(matched.email || defaultEmail, matched.display_name);
-              return;
-            } else {
-              setIsSubmitting(false);
-              setErrorMsg('Kata sandi yang Anda masukkan salah. Silakan periksa kembali.');
-              return;
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Supabase profile query during login:', err);
-      }
-    }
-
-    // 2. Check local registered users list (`labshift_registered_users`)
+    // Check local registered users cache (offline fallback)
     try {
       const registeredUsers = JSON.parse(localStorage.getItem('labshift_registered_users') || '[]');
       const localMatched = registeredUsers.find((u: any) => {
@@ -166,7 +161,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       console.warn('Local registered users check error:', e);
     }
 
-    // If not found anywhere, reject! Only registered accounts can log in.
+    // If not found anywhere, reject!
     setIsSubmitting(false);
     setErrorMsg('Akun tidak terdaftar. Silakan buat akun baru terlebih dahulu.');
   };
@@ -186,55 +181,74 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     setIsSubmitting(true);
-    const userId = generateUuid();
 
-    // Save user credentials in local registered users list
+    // 1. Register with Server Database (Persists across all browsers)
     try {
-      const registeredUsers = JSON.parse(localStorage.getItem('labshift_registered_users') || '[]');
-      const exists = registeredUsers.some((u: any) => u.email.toLowerCase() === email.trim().toLowerCase() || u.displayName.toLowerCase() === displayName.trim().toLowerCase());
-      if (!exists) {
-        registeredUsers.push({
-          id: userId,
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           email: email.trim(),
           password: password,
           displayName: displayName.trim(),
-        });
-        localStorage.setItem('labshift_registered_users', JSON.stringify(registeredUsers));
+          role: 'Ahli Teknologi Laboratorium Medik (ATLM)',
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setIsSubmitting(false);
+        setErrorMsg(data?.error || 'Pendaftaran akun gagal. Silakan coba kembali.');
+        return;
       }
-    } catch (e) {
-      console.warn('Error saving to registered users:', e);
-    }
 
-    // Save active session credentials
-    localStorage.setItem('labshift_user_id', userId);
-    localStorage.setItem('labshift_user_email', email);
-    localStorage.setItem('labshift_user_pass', password);
-    localStorage.setItem('labshift_user_name', displayName);
-    const firstName = displayName.split(/[\s,]+/)[0];
-    localStorage.setItem('labshift_user_firstname', firstName);
+      const u = data?.user || {
+        id: generateUuid(),
+        email: email.trim(),
+        displayName: displayName.trim(),
+      };
 
-    // Also persist profile directly into Supabase profiles table for cross-device sync
-    if (isSupabaseConfigured && supabase) {
+      // Save user credentials in local registered users cache
       try {
-        await supabase.from('profiles').upsert({
-          id: userId,
-          display_name: displayName.trim(),
-          email: email.trim(),
-          password: password,
-          updated_at: new Date().toISOString(),
-        });
-      } catch (err) {
-        console.warn('Supabase register profile upsert failed:', err);
+        const registeredUsers = JSON.parse(localStorage.getItem('labshift_registered_users') || '[]');
+        if (!registeredUsers.some((ru: any) => ru.email.toLowerCase() === u.email.toLowerCase())) {
+          registeredUsers.push({
+            id: u.id,
+            email: u.email,
+            password: password,
+            displayName: u.displayName,
+          });
+          localStorage.setItem('labshift_registered_users', JSON.stringify(registeredUsers));
+        }
+      } catch (e) {
+        console.warn('Error saving to registered users cache:', e);
       }
-    }
 
-    setIsSubmitting(false);
-    setSuccessMsg('Akun berhasil dibuat! Silakan masuk dengan nama atau email Anda.');
-    setTimeout(() => {
-      setSuccessMsg(null);
-      setLoginIdentifier(displayName);
-      setIsRegistering(false);
-    }, 1500);
+      // Save active session credentials
+      localStorage.setItem('labshift_user_id', u.id);
+      localStorage.setItem('labshift_user_email', u.email);
+      localStorage.setItem('labshift_user_pass', password);
+      localStorage.setItem('labshift_user_name', u.displayName);
+      const firstName = u.displayName.split(/[\s,]+/)[0];
+      localStorage.setItem('labshift_user_firstname', firstName);
+
+      // Pre-sync server state
+      await DataService.syncWithServer();
+
+      setIsSubmitting(false);
+      setSuccessMsg('Akun berhasil dibuat! Silakan masuk dengan nama atau email Anda.');
+      setTimeout(() => {
+        setSuccessMsg(null);
+        setLoginIdentifier(u.displayName);
+        setIsRegistering(false);
+      }, 1200);
+      return;
+    } catch (err: unknown) {
+      console.warn('Server registration network failed:', err);
+      setIsSubmitting(false);
+      setErrorMsg('Koneksi server gagal. Silakan coba beberapa saat lagi.');
+    }
   };
 
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
@@ -257,26 +271,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     setIsSubmitting(true);
-    localStorage.setItem('labshift_user_pass', newPassword);
 
-    // Sync to Supabase
-    if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase
-          .from('profiles')
-          .update({
-            password: newPassword,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('email', forgotEmail.trim());
-      } catch (err) {
-        console.warn('Supabase reset password sync failed:', err);
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+          newPassword: newPassword,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setIsSubmitting(false);
+        setErrorMsg(data?.error || 'Gagal mereset kata sandi. Pastikan email Anda sudah terdaftar.');
+        return;
       }
-    }
 
-    setIsSubmitting(false);
-    setResetStep('success');
-    setSuccessMsg('Kata sandi berhasil direset! Anda sekarang dapat masuk dengan kata sandi baru.');
+      localStorage.setItem('labshift_user_pass', newPassword);
+      setIsSubmitting(false);
+      setResetStep('success');
+      setSuccessMsg('Kata sandi berhasil direset! Anda sekarang dapat masuk dengan kata sandi baru.');
+    } catch (err) {
+      console.warn('Reset password error:', err);
+      setIsSubmitting(false);
+      setErrorMsg('Gagal menghubungkan ke server.');
+    }
   };
 
   return (
