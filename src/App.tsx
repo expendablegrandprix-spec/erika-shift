@@ -32,6 +32,7 @@ import { SearchModal } from './components/SearchModal.tsx';
 import { OnboardingModal } from './components/OnboardingModal.tsx';
 import { OfflineIndicator } from './components/OfflineIndicator.tsx';
 import { LoginShiftAlertModal } from './components/LoginShiftAlertModal.tsx';
+import { ShiftMatrixModal } from './components/ShiftMatrixModal.tsx';
 import { APP_METADATA } from './lib/constants.ts';
 
 export default function App() {
@@ -213,6 +214,7 @@ export default function App() {
                 onEditShift={handleOpenEditShift}
                 onGoToCalendar={handleGoToCalendar}
                 onGoToAiParser={() => setActiveTab('ai_parser')}
+                onGoToMatrix={() => setActiveTab('matrix')}
                 onRefresh={loadData}
               />
             )}
@@ -221,10 +223,22 @@ export default function App() {
               <CalendarPage
                 shifts={shifts}
                 conflicts={conflicts}
+                coworkers={coworkers}
+                userProfile={profile}
                 initialSelectedDate={formDate}
                 onAddShift={handleOpenAddShift}
                 onEditShift={handleOpenEditShift}
                 onRefresh={loadData}
+              />
+            )}
+
+            {activeTab === 'matrix' && (
+              <ShiftMatrixModal
+                isFullPage={true}
+                existingShifts={shifts}
+                coworkers={coworkers}
+                userProfile={profile}
+                onDataChanged={loadData}
               />
             )}
 

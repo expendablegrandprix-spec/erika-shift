@@ -19,7 +19,7 @@ import {
   Download,
   Grid,
 } from 'lucide-react';
-import type { ShiftWithDetails, ShiftType, ConflictIssue } from '../types/index.ts';
+import type { ShiftWithDetails, ShiftType, ConflictIssue, Coworker, UserProfile } from '../types/index.ts';
 import { PREDEFINED_SHIFT_TYPES } from '../lib/constants.ts';
 import {
   formatIndonesianDate,
@@ -34,6 +34,8 @@ import { ShiftMatrixModal } from '../components/ShiftMatrixModal.tsx';
 interface Props {
   shifts: ShiftWithDetails[];
   conflicts: ConflictIssue[];
+  coworkers?: Coworker[];
+  userProfile?: UserProfile;
   initialSelectedDate?: string;
   onAddShift: (date: string) => void;
   onEditShift: (shiftId: string) => void;
@@ -48,6 +50,8 @@ const INDONESIAN_MONTH_NAMES = [
 export const CalendarPage: React.FC<Props> = ({
   shifts,
   conflicts,
+  coworkers = [],
+  userProfile,
   initialSelectedDate,
   onAddShift,
   onEditShift,
@@ -490,6 +494,8 @@ export const CalendarPage: React.FC<Props> = ({
         isOpen={isMatrixOpen}
         onClose={() => setIsMatrixOpen(false)}
         existingShifts={shifts}
+        coworkers={coworkers}
+        userProfile={userProfile}
         onDataChanged={() => {
           if (onRefresh) onRefresh();
         }}

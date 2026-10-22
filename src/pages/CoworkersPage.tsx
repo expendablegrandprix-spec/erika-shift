@@ -15,6 +15,7 @@ import {
   AlertCircle,
   X,
   Save,
+  Trash2,
 } from 'lucide-react';
 import type { Coworker, ShiftWithDetails } from '../types/index.ts';
 import { formatIndonesianDate, getPontianakDateString } from '../lib/dateUtils.ts';
@@ -89,6 +90,15 @@ export const CoworkersPage: React.FC<Props> = ({
 
   const handleToggleActive = async (c: Coworker) => {
     await DataService.updateCoworker(c.id, { isActive: !c.isActive });
+    onRefresh();
+  };
+
+  const handleDeleteCoworker = async (c: Coworker) => {
+    if (!window.confirm(`Yakin ingin menghapus ${c.name} dari daftar rekan laboratorium?`)) return;
+    await DataService.deleteCoworker(c.id);
+    if (selectedCoworkerId === c.id) {
+      setSelectedCoworkerId(null);
+    }
     onRefresh();
   };
 
@@ -191,6 +201,17 @@ export const CoworkersPage: React.FC<Props> = ({
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCoworker(c);
+                        }}
+                        className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                        title="Hapus rekan"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -216,13 +237,23 @@ export const CoworkersPage: React.FC<Props> = ({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleOpenEdit(selectedCoworker)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
-                >
-                  Edit Data
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEdit(selectedCoworker)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
+                  >
+                    Edit Data
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCoworker(selectedCoworker)}
+                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer"
+                    title="Hapus rekan"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {selectedCoworker.notes && (

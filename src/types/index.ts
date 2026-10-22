@@ -32,6 +32,12 @@ export interface Coworker {
   createdAt?: string;
 }
 
+export interface CoworkerMatrixAssignment {
+  coworkerId: string;
+  date: string; // YYYY-MM-DD
+  shiftTypeId: string;
+}
+
 export type ShiftStatus = 'scheduled' | 'changed' | 'cancelled';
 
 export interface Shift {

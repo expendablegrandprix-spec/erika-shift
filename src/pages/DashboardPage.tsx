@@ -18,6 +18,7 @@ import {
   MessageSquareShare,
   ShieldCheck,
   Download,
+  Grid,
 } from 'lucide-react';
 import type { ShiftWithDetails, ConflictIssue, UserProfile } from '../types/index.ts';
 import { formatIndonesianFullDate, formatIndonesianDate, getPontianakDateString } from '../lib/dateUtils.ts';
@@ -34,6 +35,7 @@ interface Props {
   onEditShift: (shiftId: string) => void;
   onGoToCalendar: (date?: string) => void;
   onGoToAiParser: () => void;
+  onGoToMatrix?: () => void;
   onRefresh: () => void;
 }
 
@@ -45,6 +47,7 @@ export const DashboardPage: React.FC<Props> = ({
   onEditShift,
   onGoToCalendar,
   onGoToAiParser,
+  onGoToMatrix,
   onRefresh,
 }) => {
   const today = getPontianakDateString();
@@ -141,6 +144,17 @@ export const DashboardPage: React.FC<Props> = ({
             <Sparkles className="w-3.5 h-3.5 text-purple-700" />
             <span>Tempel Chat WhatsApp</span>
           </button>
+          {onGoToMatrix && (
+            <button
+              type="button"
+              onClick={onGoToMatrix}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Buka Matriks Jadwal Sebulan Penuh"
+            >
+              <Grid className="w-3.5 h-3.5" />
+              <span>Matriks Jadwal</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onAddShift(today)}

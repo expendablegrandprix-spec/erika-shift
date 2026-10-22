@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   CalendarDays,
   Calendar,
+  Grid,
   Users,
   MoreHorizontal,
   History,
@@ -18,7 +19,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 
-export type NavTab = 'today' | 'calendar' | 'add_shift' | 'my_shifts' | 'coworkers' | 'changes' | 'ai_parser' | 'notes' | 'stats' | 'settings';
+export type NavTab = 'today' | 'calendar' | 'matrix' | 'add_shift' | 'my_shifts' | 'coworkers' | 'changes' | 'ai_parser' | 'notes' | 'stats' | 'settings';
 
 interface Props {
   activeTab: NavTab;
@@ -76,6 +77,19 @@ export const Navigation: React.FC<Props> = ({ activeTab, onSelectTab, conflictCo
             >
               <Calendar className="w-4 h-4" />
               <span>Kalender & Tambah Shift</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onSelectTab('matrix')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'matrix'
+                  ? 'bg-teal-700 text-white font-semibold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Grid className="w-4 h-4 text-teal-600" />
+              <span>Matriks Jadwal</span>
             </button>
 
             <button

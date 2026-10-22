@@ -10,6 +10,7 @@ import {
   ShiftWithDetails,
   ShiftType,
   Coworker,
+  CoworkerMatrixAssignment,
   ShiftChangeLog,
   PersonalNote,
   ReminderSetting,
@@ -40,6 +41,7 @@ export function generateUuid(): string {
 // Local storage fallback helpers
 function getLocalItem<T>(key: string, defaultValue: T): T {
   try {
+    if (typeof localStorage === 'undefined') return defaultValue;
     const data = localStorage.getItem(LOCAL_STORAGE_KEY_PREFIX + key);
     return data ? JSON.parse(data) : defaultValue;
   } catch {
@@ -49,6 +51,7 @@ function getLocalItem<T>(key: string, defaultValue: T): T {
 
 function setLocalItem<T>(key: string, value: T): void {
   try {
+    if (typeof localStorage === 'undefined') return;
     localStorage.setItem(LOCAL_STORAGE_KEY_PREFIX + key, JSON.stringify(value));
   } catch (e) {
     console.error('LocalStorage save error:', e);
@@ -63,8 +66,36 @@ const DEFAULT_PROFILE: UserProfile = {
   workUnit: 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
 };
 
-// Default initial coworkers (clean start, no dummy data)
-const DEFAULT_COWORKERS: Coworker[] = [];
+// Default initial ATLM coworkers from RSUD SSMA
+export const DEFAULT_COWORKERS: Coworker[] = [
+  {
+    id: '00000000-0000-4000-a000-000000000010',
+    userId: DEFAULT_USER_ID,
+    name: 'Siti Rahma, A.Md.AK',
+    nickname: 'Siti',
+    notes: 'Penanggung Jawab Hematologi',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: '00000000-0000-4000-a000-000000000011',
+    userId: DEFAULT_USER_ID,
+    name: 'Budi Santoso, S.Tr.Kes',
+    nickname: 'Budi',
+    notes: 'Penanggung Jawab Kimia Darah',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: '00000000-0000-4000-a000-000000000012',
+    userId: DEFAULT_USER_ID,
+    name: 'Dewi Sartika, A.Md.AK',
+    nickname: 'Dewi',
+    notes: 'Penanggung Jawab Urinalisis & BDRS',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+];
 
 export class DataService {
   // -------------------------------------------------------------
@@ -183,6 +214,14 @@ export class DataService {
   // COWORKERS
   // -------------------------------------------------------------
   static async getCoworkers(): Promise<Coworker[]> {
+    let local = getLocalItem<Coworker[]>('coworkers', []);
+
+    // If local has never been populated, seed with default coworkers
+    if (!local || local.length === 0) {
+      local = [...DEFAULT_COWORKERS];
+      setLocalItem('coworkers', local);
+    }
+
     if (isSupabaseConfigured && supabase) {
       try {
         const { data, error } = await supabase
@@ -190,8 +229,8 @@ export class DataService {
           .select('*')
           .eq('is_active', true)
           .order('name');
-        if (!error && data) {
-          const list = data.map((d) => ({
+        if (!error && data && data.length > 0) {
+          const remoteList: Coworker[] = data.map((d) => ({
             id: d.id,
             userId: d.user_id || DEFAULT_USER_ID,
             name: d.name,
@@ -200,14 +239,21 @@ export class DataService {
             isActive: d.is_active,
             createdAt: d.created_at,
           }));
-          setLocalItem('coworkers', list);
-          return list;
+
+          // Merge local and remote by ID, preserving local entries
+          const mergedMap = new Map<string, Coworker>();
+          local.forEach((c) => mergedMap.set(c.id, c));
+          remoteList.forEach((c) => mergedMap.set(c.id, c));
+          const merged = Array.from(mergedMap.values());
+          setLocalItem('coworkers', merged);
+          return merged;
         }
       } catch (e) {
-        console.warn('Supabase getCoworkers failed:', e);
+        console.warn('Supabase getCoworkers failed, using local:', e);
       }
     }
-    return getLocalItem<Coworker[]>('coworkers', DEFAULT_COWORKERS);
+
+    return local;
   }
 
   static async createCoworker(coworker: Omit<Coworker, 'id' | 'userId' | 'isActive'>): Promise<Coworker> {
@@ -222,9 +268,16 @@ export class DataService {
       createdAt: new Date().toISOString(),
     };
 
+    // 1. Immediately persist to localStorage first
+    const current = await this.getCoworkers();
+    const updated = [newCoworker, ...current.filter((c) => c.id !== newCoworker.id)];
+    setLocalItem('coworkers', updated);
+    this.notifyDataChanged();
+
+    // 2. Best-effort Supabase sync (do not block or throw if RLS fails)
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase
+        await supabase
           .from('coworkers')
           .insert({
             id: newCoworker.id,
@@ -233,26 +286,21 @@ export class DataService {
             nickname: newCoworker.nickname,
             notes: newCoworker.notes,
             is_active: true,
-          })
-          .select()
-          .single();
-        if (!error && data) {
-          newCoworker.id = data.id;
-        } else if (error) {
-          console.warn('Supabase createCoworker error:', error.message);
-        }
+          });
       } catch (e) {
-        console.warn('Supabase createCoworker failed:', e);
+        console.warn('Supabase createCoworker sync skipped (saved locally):', e);
       }
     }
 
-    const current = await this.getCoworkers();
-    setLocalItem('coworkers', [newCoworker, ...current]);
-    this.notifyDataChanged();
     return newCoworker;
   }
 
   static async updateCoworker(id: string, updates: Partial<Coworker>): Promise<void> {
+    const coworkers = await this.getCoworkers();
+    const updatedList = coworkers.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    setLocalItem('coworkers', updatedList);
+    this.notifyDataChanged();
+
     if (isSupabaseConfigured && supabase && isValidUuid(id)) {
       try {
         await supabase
@@ -266,14 +314,33 @@ export class DataService {
           })
           .eq('id', id);
       } catch (e) {
-        console.warn('Supabase updateCoworker failed:', e);
+        console.warn('Supabase updateCoworker sync skipped:', e);
       }
     }
+  }
 
+  static async deleteCoworker(id: string): Promise<void> {
     const coworkers = await this.getCoworkers();
-    const updatedList = coworkers.map((c) => (c.id === id ? { ...c, ...updates } : c));
+    const updatedList = coworkers.filter((c) => c.id !== id);
     setLocalItem('coworkers', updatedList);
+
+    // Remove from shift coworker assignments
+    const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
+    setLocalItem('shift_coworkers', currentPairs.filter((p) => p.coworkerId !== id));
+
+    // Remove from matrix assignments
+    const matrixAssignments = getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []);
+    setLocalItem('coworker_matrix_assignments', matrixAssignments.filter((a) => a.coworkerId !== id));
+
     this.notifyDataChanged();
+
+    if (isSupabaseConfigured && supabase && isValidUuid(id)) {
+      try {
+        await supabase.from('coworkers').delete().eq('id', id);
+      } catch (e) {
+        console.warn('Supabase deleteCoworker sync skipped:', e);
+      }
+    }
   }
 
   // -------------------------------------------------------------
@@ -285,9 +352,12 @@ export class DataService {
     const shiftTypesMap = new Map(shiftTypes.map((st) => [st.id, st]));
     const coworkersMap = new Map(coworkers.map((c) => [c.id, c]));
 
-    let rawShifts: Shift[] = [];
-    let shiftCoworkerPairs: { shiftId: string; coworkerId: string }[] = [];
-    let allTaskChecks: { shiftId: string; taskName: string; isCompleted: boolean; id: string }[] = [];
+    let localShifts = getLocalItem<Shift[]>('shifts', []);
+    let shiftCoworkerPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
+    let allTaskChecks = getLocalItem<{ shiftId: string; taskName: string; isCompleted: boolean; id: string }[]>(
+      'shift_task_checks',
+      []
+    );
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -296,8 +366,8 @@ export class DataService {
           .select('*')
           .order('shift_date', { ascending: true });
 
-        if (!sErr && shiftsData) {
-          rawShifts = shiftsData.map((d) => ({
+        if (!sErr && shiftsData && shiftsData.length > 0) {
+          const remoteShifts = shiftsData.map((d) => ({
             id: d.id,
             userId: d.user_id || DEFAULT_USER_ID,
             shiftDate: d.shift_date,
@@ -314,41 +384,29 @@ export class DataService {
           }));
 
           const { data: scData } = await supabase.from('shift_coworkers').select('*');
-          if (scData) {
-            shiftCoworkerPairs = scData.map((sc) => ({ shiftId: sc.shift_id, coworkerId: sc.coworker_id }));
+          if (scData && scData.length > 0) {
+            const remotePairs = scData.map((sc) => ({ shiftId: sc.shift_id, coworkerId: sc.coworker_id }));
+            const pairMap = new Map<string, { shiftId: string; coworkerId: string }>();
+            shiftCoworkerPairs.forEach((p) => pairMap.set(`${p.shiftId}_${p.coworkerId}`, p));
+            remotePairs.forEach((p) => pairMap.set(`${p.shiftId}_${p.coworkerId}`, p));
+            shiftCoworkerPairs = Array.from(pairMap.values());
+            setLocalItem('shift_coworkers', shiftCoworkerPairs);
           }
 
-          const { data: tcData } = await supabase.from('shift_task_checks').select('*');
-          if (tcData) {
-            allTaskChecks = tcData.map((tc) => ({
-              id: tc.id,
-              shiftId: tc.shift_id,
-              taskName: tc.task_name,
-              isCompleted: tc.is_completed,
-            }));
-          }
-
-          // Cache locally
-          setLocalItem('shifts', rawShifts);
-          setLocalItem('shift_coworkers', shiftCoworkerPairs);
-          setLocalItem('shift_task_checks', allTaskChecks);
+          // Merge shifts by ID, preserving local
+          const shiftMap = new Map<string, Shift>();
+          localShifts.forEach((s) => shiftMap.set(s.id, s));
+          remoteShifts.forEach((s) => shiftMap.set(s.id, s));
+          localShifts = Array.from(shiftMap.values());
+          setLocalItem('shifts', localShifts);
         }
       } catch (e) {
         console.warn('Supabase getShifts failed, using local cache:', e);
       }
     }
 
-    if (rawShifts.length === 0) {
-      rawShifts = getLocalItem<Shift[]>('shifts', []);
-      shiftCoworkerPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
-      allTaskChecks = getLocalItem<{ shiftId: string; taskName: string; isCompleted: boolean; id: string }[]>(
-        'shift_task_checks',
-        []
-      );
-    }
-
     // Combine with details
-    return rawShifts.map((s) => {
+    return localShifts.map((s) => {
       const shiftType = shiftTypesMap.get(s.shiftTypeId) || PREDEFINED_SHIFT_TYPES[0];
       const originalShiftType = s.originalShiftTypeId ? shiftTypesMap.get(s.originalShiftTypeId) : undefined;
       const assignedCoworkerIds = shiftCoworkerPairs.filter((p) => p.shiftId === s.id).map((p) => p.coworkerId);
@@ -379,9 +437,20 @@ export class DataService {
       updatedAt: new Date().toISOString(),
     };
 
+    // 1. Save locally immediately
+    const currentShifts = getLocalItem<Shift[]>('shifts', []);
+    setLocalItem('shifts', [...currentShifts, newShift]);
+
+    if (coworkerIds.length > 0) {
+      const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
+      const newPairs = coworkerIds.map((cid) => ({ shiftId: newShift.id, coworkerId: cid }));
+      setLocalItem('shift_coworkers', [...currentPairs, ...newPairs]);
+    }
+
+    // 2. Best-effort Supabase sync (does not block)
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase
+        await supabase
           .from('shifts')
           .insert({
             id: newShift.id,
@@ -395,41 +464,22 @@ export class DataService {
             status: newShift.status,
             original_shift_type_id: newShift.originalShiftTypeId || null,
             is_confirmed: newShift.isConfirmed,
-          })
-          .select()
-          .single();
+          });
 
-        if (!error && data) {
-          newShift.id = data.id;
-
-          // Insert coworkers
-          if (coworkerIds.length > 0) {
-            const validCoworkerIds = coworkerIds.filter((cid) => isValidUuid(cid));
-            if (validCoworkerIds.length > 0) {
-              await supabase.from('shift_coworkers').insert(
-                validCoworkerIds.map((cid) => ({
-                  shift_id: data.id,
-                  coworker_id: cid,
-                }))
-              );
-            }
+        if (coworkerIds.length > 0) {
+          const validCoworkerIds = coworkerIds.filter((cid) => isValidUuid(cid));
+          if (validCoworkerIds.length > 0) {
+            await supabase.from('shift_coworkers').insert(
+              validCoworkerIds.map((cid) => ({
+                shift_id: newShift.id,
+                coworker_id: cid,
+              }))
+            );
           }
-        } else if (error) {
-          console.warn('Supabase createShift error:', error.message);
         }
       } catch (e) {
-        console.warn('Supabase createShift failed:', e);
+        console.warn('Supabase createShift sync skipped (saved locally):', e);
       }
-    }
-
-    // Save locally
-    const currentShifts = getLocalItem<Shift[]>('shifts', []);
-    setLocalItem('shifts', [...currentShifts, newShift]);
-
-    if (coworkerIds.length > 0) {
-      const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
-      const newPairs = coworkerIds.map((cid) => ({ shiftId: newShift.id, coworkerId: cid }));
-      setLocalItem('shift_coworkers', [...currentPairs, ...newPairs]);
     }
 
     // Log creation
@@ -547,6 +597,41 @@ export class DataService {
     setLocalItem('shifts', rawShifts.filter((s) => s.id !== id));
     const currentPairs = getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []);
     setLocalItem('shift_coworkers', currentPairs.filter((p) => p.shiftId !== id));
+    this.notifyDataChanged();
+  }
+
+  // -------------------------------------------------------------
+  // COWORKER MATRIX ASSIGNMENTS
+  // -------------------------------------------------------------
+  static getCoworkerMatrixAssignments(): CoworkerMatrixAssignment[] {
+    return getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []);
+  }
+
+  static setCoworkerMatrixAssignment(coworkerId: string, date: string, shiftTypeId: string | null): void {
+    const current = getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []);
+    const filtered = current.filter((a) => !(a.coworkerId === coworkerId && a.date === date));
+    if (shiftTypeId) {
+      filtered.push({ coworkerId, date, shiftTypeId });
+    }
+    setLocalItem('coworker_matrix_assignments', filtered);
+    this.notifyDataChanged();
+  }
+
+  static batchSaveMatrix(
+    items: { coworkerId?: string; isUser?: boolean; date: string; shiftTypeId: string | null }[]
+  ): void {
+    const matrixAssignments = getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []);
+    let updatedMatrix = [...matrixAssignments];
+
+    for (const item of items) {
+      if (item.coworkerId) {
+        updatedMatrix = updatedMatrix.filter((a) => !(a.coworkerId === item.coworkerId && a.date === item.date));
+        if (item.shiftTypeId) {
+          updatedMatrix.push({ coworkerId: item.coworkerId, date: item.date, shiftTypeId: item.shiftTypeId });
+        }
+      }
+    }
+    setLocalItem('coworker_matrix_assignments', updatedMatrix);
     this.notifyDataChanged();
   }
 
