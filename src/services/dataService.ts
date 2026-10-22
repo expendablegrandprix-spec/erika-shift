@@ -212,15 +212,14 @@ export class DataService {
   }
 
   // -------------------------------------------------------------
-  // COWORKERS
-  // -------------------------------------------------------------
   static async getCoworkers(): Promise<Coworker[]> {
-    let local = getLocalItem<Coworker[]>('coworkers', []);
-
-    // If local has never been populated, seed with default coworkers
-    if (!local || local.length === 0) {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY_PREFIX + 'coworkers') : null;
+    let local: Coworker[];
+    if (raw === null) {
       local = [...DEFAULT_COWORKERS];
       setLocalItem('coworkers', local);
+    } else {
+      local = getLocalItem<Coworker[]>('coworkers', []);
     }
 
     if (isSupabaseConfigured && supabase) {
@@ -1134,6 +1133,7 @@ export class DataService {
         shifts: getLocalItem<Shift[]>('shifts', []),
         shift_coworkers: getLocalItem<{ shiftId: string; coworkerId: string }[]>('shift_coworkers', []),
         coworker_matrix_assignments: getLocalItem<CoworkerMatrixAssignment[]>('coworker_matrix_assignments', []),
+        change_logs: getLocalItem<ShiftChangeLog[]>('shift_change_logs', []),
         notes: getLocalItem<PersonalNote[]>('personal_notes', []),
       };
 
@@ -1180,6 +1180,23 @@ export class DataService {
     } catch (e) {
       console.warn('Error clearing dummy data:', e);
     }
+  }
+
+  static async clearAllChangeLogs(): Promise<void> {
+    setLocalItem('shift_change_logs', []);
+    this.notifyDataChanged();
+    await this.pushToServer();
+  }
+
+  static async clearAllData(): Promise<void> {
+    setLocalItem('shifts', []);
+    setLocalItem('shift_coworkers', []);
+    setLocalItem('coworker_matrix_assignments', []);
+    setLocalItem('shift_task_checks', []);
+    setLocalItem('shift_change_logs', []);
+    setLocalItem('personal_notes', []);
+    this.notifyDataChanged();
+    await this.pushToServer();
   }
 
   static subscribeRealtime(onUpdate: () => void): () => void {

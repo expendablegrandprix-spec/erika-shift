@@ -13,8 +13,10 @@ import {
   Sparkles,
   FileText,
   Search,
+  Trash2,
 } from 'lucide-react';
 import type { ShiftChangeLog } from '../types/index.ts';
+import { DataService } from '../services/dataService.ts';
 import { formatIndonesianDate, formatIndonesianFullDate } from '../lib/dateUtils.ts';
 import { ShiftColorBadge } from '../components/ShiftColorBadge.tsx';
 
@@ -49,15 +51,33 @@ export const ChangeHistoryPage: React.FC<Props> = ({ changeLogs }) => {
           </h1>
         </div>
 
-        <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari alasan, tanggal, atau warna..."
-            className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 shadow-xs"
-          />
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari alasan, tanggal, atau warna..."
+              className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 shadow-xs"
+            />
+          </div>
+
+          {changeLogs.length > 0 && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (confirm('Apakah Anda yakin ingin menghapus seluruh riwayat log perubahan secara permanen dari database?')) {
+                  await DataService.clearAllChangeLogs();
+                }
+              }}
+              className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200 transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="Hapus riwayat permanen"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Hapus Riwayat</span>
+            </button>
+          )}
         </div>
       </div>
 

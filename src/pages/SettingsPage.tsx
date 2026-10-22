@@ -21,6 +21,7 @@ import {
   KeyRound,
   Lock,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import type { UserProfile, ReminderSetting } from '../types/index.ts';
 import { isSupabaseConfigured } from '../lib/supabase.ts';
@@ -729,6 +730,38 @@ export const SettingsPage: React.FC<Props> = ({
             Pulihkan Data
           </button>
         </div>
+      </div>
+
+      {/* 6.5. HAPUS SELURUH DATA PERMANEN */}
+      <div className="bg-white border border-rose-200 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <Trash2 className="w-4 h-4 text-rose-600" />
+            <span>Hapus Seluruh Data Aplikasi & Database</span>
+          </h4>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Menghapus secara permanen seluruh jadwal shift, daftar rekan, matrik, dan catatan baik dari aplikasi maupun database server.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={async () => {
+            if (
+              confirm(
+                'PERHATIAN: Apakah Anda yakin ingin MENGHAPUS SELURUH DATA secara PERMANEN? Semua jadwal shift, daftar rekan, matrik, dan catatan akan terhapus dari aplikasi dan server database!'
+              )
+            ) {
+              await DataService.clearAllData();
+              onRefresh();
+              alert('Seluruh data berhasil dihapus secara permanen dari aplikasi dan server database.');
+            }
+          }}
+          className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-colors flex items-center gap-2 shrink-0 cursor-pointer shadow-2xs"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Hapus Semua Data</span>
+        </button>
       </div>
 
       {/* 7. KELUAR AKUN (LOGOUT CARD) */}
