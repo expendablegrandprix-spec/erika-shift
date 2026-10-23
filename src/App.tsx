@@ -158,16 +158,15 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <LoginPage
-        onLoginSuccess={async (email, displayName) => {
+        onLoginSuccess={async (_email, displayName) => {
           setIsLoggedIn(true);
           localStorage.setItem('labshift_logged_in', 'true');
           setActiveTab('today');
           setIsLoginShiftAlertOpen(true);
-          await loadData();
-          if (displayName && (!profile?.displayName || profile.displayName === 'ATLM Patologi Klinik')) {
+          if (displayName) {
             await DataService.updateProfile({ displayName });
-            await loadData();
           }
+          await loadData();
         }}
       />
     );
@@ -179,6 +178,7 @@ export default function App() {
       <Header
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenSettings={() => setActiveTab('settings')}
+        userDisplayName={profile?.displayName}
       />
 
       {/* Main Navigation */}

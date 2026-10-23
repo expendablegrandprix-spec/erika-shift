@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { LogIn, KeyRound, Mail, Lock, User, ShieldCheck, Sparkles, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { LogIn, KeyRound, Mail, Lock, User, ShieldCheck, Sparkles, AlertCircle, CheckCircle2, ArrowRight, Users, Radio } from 'lucide-react';
 import { APP_METADATA } from '../lib/constants.ts';
 import { supabase, isSupabaseConfigured } from '../lib/supabase.ts';
 import { DataService, generateUuid } from '../services/dataService.ts';
@@ -17,6 +17,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [isForgotMode, setIsForgotMode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registeredAccounts, setRegisteredAccounts] = useState<Array<{ id: string; email: string; displayName: string; role?: string }>>([]);
 
   // Form fields (clean initial states)
   const [loginIdentifier, setLoginIdentifier] = useState(() => {
@@ -37,6 +38,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [logoError, setLogoError] = useState(false);
+
+  const loadRegisteredUsers = useCallback(async () => {
+    const users = await DataService.getRegisteredUsers();
+    setRegisteredAccounts(users);
+  }, []);
+
+  useEffect(() => {
+    loadRegisteredUsers();
+
+    // Listen for realtime SSE user registrations or password resets
+    const handleUserRegistered = () => {
+      loadRegisteredUsers();
+    };
+
+    window.addEventListener('labshift_user_registered', handleUserRegistered);
+    window.addEventListener('labshift_user_updated', handleUserRegistered);
+
+    return () => {
+      window.removeEventListener('labshift_user_registered', handleUserRegistered);
+      window.removeEventListener('labshift_user_updated', handleUserRegistered);
+    };
+  }, [loadRegisteredUsers]);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -233,6 +256,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       const firstName = u.displayName.split(/[\s,]+/)[0];
       localStorage.setItem('labshift_user_firstname', firstName);
 
+      localStorage.setItem(
+        'labshift_personal_profile',
+        JSON.stringify({
+          id: u.id,
+          displayName: u.displayName,
+          jobTitle: 'Ahli Teknologi Laboratorium Medik (ATLM)',
+          workUnit: 'Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak',
+        })
+      );
+
       // Persist profile to Supabase database if configured
       if (isSupabaseConfigured && supabase) {
         try {
@@ -250,16 +283,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         }
       }
 
-      // Pre-sync server state
+      // Pre-sync server state and reload registered users list
       await DataService.syncWithServer();
+      await loadRegisteredUsers();
 
       setIsSubmitting(false);
-      setSuccessMsg('Akun berhasil dibuat! Silakan masuk dengan nama atau email Anda.');
+      setSuccessMsg('Akun berhasil didaftarkan dan tersimpan! Masuk ke akun Anda...');
       setTimeout(() => {
-        setSuccessMsg(null);
-        setLoginIdentifier(u.displayName);
-        setIsRegistering(false);
-      }, 1200);
+        onLoginSuccess(u.email, u.displayName);
+      }, 700);
       return;
     } catch (err: unknown) {
       console.warn('Server registration network failed:', err);
@@ -559,6 +591,76 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* Registered & Synced Accounts Quick Selector */}
+              {registeredAccounts.length > 0 && (
+                <div className="space-y-1.5 p-3 rounded-2xl bg-indigo-50/70 border border-indigo-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-indigo-950 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Akun Terdaftar di Sistem ({registeredAccounts.length})</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Realtime Terhubung
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Pilih akun di bawah ini untuk mengisi data masuk secara otomatis:
+                  </p>
+                  <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto pr-0.5 pt-1">
+                    {registeredAccounts.map((acc) => {
+                      const isSelected =
+                        loginIdentifier.toLowerCase() === (acc.displayName || '').toLowerCase() ||
+                        loginIdentifier.toLowerCase() === (acc.email || '').toLowerCase();
+                      return (
+                        <button
+                          key={acc.id || acc.email}
+                          type="button"
+                          onClick={() => {
+                            setLoginIdentifier(acc.displayName || acc.email);
+                            const savedEmail = localStorage.getItem('labshift_user_email');
+                            const savedPass = localStorage.getItem('labshift_user_pass');
+                            if (savedEmail === acc.email && savedPass) {
+                              setPassword(savedPass);
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-white hover:bg-indigo-50/50 text-slate-800 border border-slate-200/80 shadow-2xs'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${
+                                isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                              }`}
+                            >
+                              {(acc.displayName || 'U').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="truncate">
+                              <p className="text-xs font-bold leading-tight truncate">{acc.displayName}</p>
+                              <p
+                                className={`text-[10px] leading-tight truncate ${
+                                  isSelected ? 'text-indigo-100' : 'text-slate-500'
+                                }`}
+                              >
+                                {acc.email}
+                              </p>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1">
+                              Terpilih
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

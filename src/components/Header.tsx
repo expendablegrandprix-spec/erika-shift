@@ -13,9 +13,10 @@ import { PWAInstallButton } from './PWAInstallButton.tsx';
 interface Props {
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  userDisplayName?: string;
 }
 
-export const Header: React.FC<Props> = ({ onOpenSearch, onOpenSettings }) => {
+export const Header: React.FC<Props> = ({ onOpenSearch, onOpenSettings, userDisplayName }) => {
   const [pontianakTime, setPontianakTime] = useState(getPontianakTimeString());
   const [pontianakDate, setPontianakDate] = useState(getPontianakDateString());
   const [logoError, setLogoError] = useState(false);
@@ -71,6 +72,23 @@ export const Header: React.FC<Props> = ({ onOpenSearch, onOpenSettings }) => {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
+          {/* Active User Name / Profile Badge */}
+          {userDisplayName && (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/80 bg-slate-50 hover:bg-white text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
+              title={`Akun ATLM Aktif: ${userDisplayName} (Klik untuk pengaturan)`}
+            >
+              <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">
+                {userDisplayName.charAt(0).toUpperCase()}
+              </div>
+              <span className="max-w-[100px] sm:max-w-[140px] truncate hidden xs:inline">
+                {userDisplayName.split(/[\s,]+/)[0]}
+              </span>
+            </button>
+          )}
+
           {/* PWA Install Button */}
           <PWAInstallButton variant="compact" />
 
@@ -97,7 +115,7 @@ export const Header: React.FC<Props> = ({ onOpenSearch, onOpenSettings }) => {
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
             <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span className="hidden md:inline">Server Terhubung</span>
+            <span className="hidden md:inline">Realtime Aktif</span>
           </button>
         </div>
       </div>

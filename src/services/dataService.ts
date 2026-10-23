@@ -875,7 +875,7 @@ export class DataService {
           .from('reminder_settings')
           .select('*')
           .limit(1)
-          .single();
+          .maybeSingle();
         if (!error && data) {
           return {
             id: data.id,
@@ -1233,6 +1233,40 @@ export class DataService {
     await this.pushToServer();
   }
 
+  static async getRegisteredUsers(): Promise<Array<{ id: string; email: string; displayName: string; role?: string }>> {
+    try {
+      const res = await fetch('/api/auth/users');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.users)) {
+          // Sync to local cache
+          try {
+            localStorage.setItem('labshift_server_users', JSON.stringify(data.users));
+          } catch {}
+          return data.users;
+        }
+      }
+    } catch (e) {
+      console.warn('Fetch server users failed, using local cache:', e);
+    }
+
+    try {
+      const cached = localStorage.getItem('labshift_server_users');
+      if (cached) return JSON.parse(cached);
+      const localUsers = localStorage.getItem('labshift_registered_users');
+      if (localUsers) return JSON.parse(localUsers);
+    } catch {}
+
+    return [
+      {
+        id: DEFAULT_USER_ID,
+        email: 'atlm@rsudssma.pontianak.go.id',
+        displayName: 'ATLM Patologi Klinik',
+        role: 'Ahli Teknologi Laboratorium Medik (ATLM)',
+      },
+    ];
+  }
+
   static subscribeRealtime(onUpdate: () => void): () => void {
     const handleLocalChange = () => {
       onUpdate();
@@ -1248,7 +1282,37 @@ export class DataService {
       if (changed) onUpdate();
     });
 
-    // Cross-browser polling: pull updates made by other browsers or devices
+    // Native Server-Sent Events (SSE) for instant cross-browser real-time sync
+    let eventSource: EventSource | null = null;
+    if (typeof window !== 'undefined' && typeof EventSource !== 'undefined') {
+      try {
+        eventSource = new EventSource('/api/realtime/stream');
+
+        eventSource.addEventListener('data_updated', () => {
+          this.syncWithServer().then((changed) => {
+            if (changed) onUpdate();
+          });
+        });
+
+        eventSource.addEventListener('user_registered', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            window.dispatchEvent(new CustomEvent('labshift_user_registered', { detail: data }));
+          } catch {}
+        });
+
+        eventSource.addEventListener('user_updated', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            window.dispatchEvent(new CustomEvent('labshift_user_updated', { detail: data }));
+          } catch {}
+        });
+      } catch (err) {
+        console.warn('SSE connection init error:', err);
+      }
+    }
+
+    // Cross-browser polling fallback: pull updates periodically or on tab focus
     let pollInterval: ReturnType<typeof setInterval> | null = null;
     const handleFocus = () => {
       this.syncWithServer().then((changed) => {
@@ -1263,7 +1327,7 @@ export class DataService {
         this.syncWithServer().then((changed) => {
           if (changed) onUpdate();
         });
-      }, 6000);
+      }, 5000);
     }
 
     let supabaseChannel: RealtimeChannel | null = null;
@@ -1306,6 +1370,11 @@ export class DataService {
         window.removeEventListener('focus', handleFocus);
         window.removeEventListener('online', handleFocus);
         if (pollInterval) clearInterval(pollInterval);
+      }
+      if (eventSource) {
+        try {
+          eventSource.close();
+        } catch {}
       }
       if (supabase && supabaseChannel) {
         supabase.removeChannel(supabaseChannel);

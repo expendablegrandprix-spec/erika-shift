@@ -29,6 +29,57 @@ const port = parseInt(process.env.PORT || '3000', 10);
 app.use(express.json({ limit: '15mb' }));
 
 // -------------------------------------------------------------
+// REAL-TIME SSE BROADCASTER (INSTANT MULTI-CLIENT SYNC)
+// -------------------------------------------------------------
+const sseClients = new Set<express.Response>();
+
+export function broadcastRealtime(event: string, data: any) {
+  const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(message);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// SSE real-time stream endpoint
+app.get('/api/realtime/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Initial handshake
+  res.write(
+    `event: connected\ndata: ${JSON.stringify({
+      status: 'connected',
+      clientsCount: sseClients.size + 1,
+      timestamp: new Date().toISOString(),
+    })}\n\n`
+  );
+
+  sseClients.add(res);
+
+  // Heartbeat ping every 20 seconds to keep connection alive
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      clearInterval(pingInterval);
+      sseClients.delete(res);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(pingInterval);
+    sseClients.delete(res);
+  });
+});
+
+// -------------------------------------------------------------
 // AUTHENTICATION & MULTI-BROWSER CONNECTIVITY ENDPOINTS
 // -------------------------------------------------------------
 
@@ -81,6 +132,12 @@ app.post('/api/auth/register', async (req, res) => {
 
     db.users.push(newUser);
     saveDatabase(db);
+    broadcastRealtime('user_registered', {
+      id: newUser.id,
+      email: newUser.email,
+      displayName: newUser.displayName,
+      role: newUser.role,
+    });
 
     if (serverSupabase) {
       try {
@@ -180,6 +237,7 @@ app.post('/api/auth/reset-password', (req, res) => {
     }
     user.password = String(newPassword);
     saveDatabase(db);
+    broadcastRealtime('user_updated', { email: cleanEmail });
     res.json({ success: true, message: 'Kata sandi berhasil diperbarui.' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Server error';
@@ -214,17 +272,24 @@ app.get('/api/sync', (_req, res) => {
 // Push client updates to server database
 app.post('/api/sync', (req, res) => {
   try {
-    const { shifts, shift_coworkers, coworkers, coworker_matrix_assignments, notes, profile } = req.body;
+    const { shifts, shift_coworkers, coworkers, coworker_matrix_assignments, change_logs, notes, reminders, profile } = req.body;
     const db = getDatabase();
 
     if (Array.isArray(shifts)) db.shifts = shifts;
     if (Array.isArray(shift_coworkers)) db.shift_coworkers = shift_coworkers;
     if (Array.isArray(coworkers)) db.coworkers = coworkers;
     if (Array.isArray(coworker_matrix_assignments)) db.coworker_matrix_assignments = coworker_matrix_assignments;
+    if (Array.isArray(change_logs)) db.change_logs = change_logs;
     if (Array.isArray(notes)) db.notes = notes;
+    if (reminders && typeof reminders === 'object') db.reminders = { ...db.reminders, ...reminders };
     if (profile && typeof profile === 'object') db.profile = { ...db.profile, ...profile };
 
     saveDatabase(db);
+    broadcastRealtime('data_updated', {
+      updatedAt: db.updatedAt,
+      shiftsCount: db.shifts.length,
+      coworkersCount: db.coworkers.length,
+    });
     res.json({ success: true, updatedAt: db.updatedAt });
   } catch (err) {
     res.status(500).json({ error: 'Gagal menyimpan sinkronisasi data.' });
