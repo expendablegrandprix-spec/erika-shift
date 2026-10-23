@@ -3,6 +3,94 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        // Intercept Vite HMR WebSocket connection attempts since HMR is disabled in AI Studio iframe
+        try {
+          if (typeof window !== 'undefined' && window.WebSocket) {
+            const OrigWebSocket = window.WebSocket;
+            const PatchedWebSocket = function(url, protocols) {
+              const isViteHmr = 
+                protocols === 'vite-hmr' || 
+                (Array.isArray(protocols) && protocols.includes('vite-hmr')) ||
+                (typeof url === 'string' && (url.includes('/@vite/') || url.includes('vite-hmr')));
+              
+              if (isViteHmr) {
+                const target = new EventTarget();
+                const dummySocket = {
+                  url: String(url),
+                  readyState: 1, // WebSocket.OPEN
+                  CONNECTING: 0,
+                  OPEN: 1,
+                  CLOSING: 2,
+                  CLOSED: 3,
+                  send: function() {},
+                  close: function() {},
+                  addEventListener: target.addEventListener.bind(target),
+                  removeEventListener: target.removeEventListener.bind(target),
+                  dispatchEvent: target.dispatchEvent.bind(target),
+                  onopen: null,
+                  onclose: null,
+                  onerror: null,
+                  onmessage: null,
+                };
+                return dummySocket;
+              }
+              return new OrigWebSocket(url, protocols);
+            };
+            PatchedWebSocket.prototype = OrigWebSocket.prototype;
+            PatchedWebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+            PatchedWebSocket.OPEN = OrigWebSocket.OPEN;
+            PatchedWebSocket.CLOSING = OrigWebSocket.CLOSING;
+            PatchedWebSocket.CLOSED = OrigWebSocket.CLOSED;
+            window.WebSocket = PatchedWebSocket;
+          }
+        } catch (_) {}
+
+        // Suppress console.error and error events for Vite HMR WebSocket
+        try {
+          const originalConsoleError = console.error;
+          console.error = function() {
+            for (let i = 0; i < arguments.length; i++) {
+              const arg = arguments[i];
+              if (arg) {
+                const msg = typeof arg === 'string' ? arg : (arg.message || arg.stack || String(arg));
+                if (
+                  msg.includes('WebSocket closed without opened') ||
+                  (msg.includes('WebSocket') && (msg.includes('@vite/client') || msg.includes('vite-hmr'))) ||
+                  msg.includes('[vite] server connection lost')
+                ) {
+                  return;
+                }
+              }
+            }
+            return originalConsoleError.apply(console, arguments);
+          };
+        } catch (_) {}
+
+        window.addEventListener('error', function(e) {
+          if (e && (
+            (typeof e.message === 'string' && e.message.includes('WebSocket')) ||
+            (typeof e.filename === 'string' && e.filename.includes('@vite/client')) ||
+            (e.error && typeof e.error.message === 'string' && e.error.message.includes('WebSocket'))
+          )) {
+            e.preventDefault?.();
+            e.stopImmediatePropagation?.();
+            return true;
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e && e.reason && (
+            (typeof e.reason.message === 'string' && e.reason.message.includes('WebSocket')) ||
+            (typeof e.reason.stack === 'string' && e.reason.stack.includes('@vite/client'))
+          )) {
+            e.preventDefault?.();
+            e.stopImmediatePropagation?.();
+          }
+        }, true);
+      })();
+    </script>
     <title>LabShift Personal — ATLM RSUD Sultan Syarif Mohamad Alkadrie</title>
     <meta name="description" content="Aplikasi penjadwalan shift dan manajemen tugas pribadi untuk ATLM Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak." />
     <meta property="og:title" content="LabShift Personal — ATLM RSUD Sultan Syarif Mohamad Alkadrie" />

@@ -27,7 +27,7 @@
     }
   ],
   "profile": {
-    "displayName": "Rina Kusuma, A.Md.AK",
+    "displayName": "ATLM Patologi Klinik",
     "jobTitle": "Ahli Teknologi Laboratorium Medik (ATLM)",
     "workUnit": "Instalasi Laboratorium Patologi Klinik RSUD Sultan Syarif Mohamad Alkadrie Pontianak",
     "id": "00000000-0000-4000-a000-000000000001",
@@ -46,5 +46,5 @@
     "minutesBeforeShift": 60,
     "browserNotificationsEnabled": false
   },
-  "updatedAt": "2026-10-23T17:53:20.684Z"
+  "updatedAt": "2026-10-23T18:01:26.196Z"
 }
